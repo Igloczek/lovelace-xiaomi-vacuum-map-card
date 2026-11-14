@@ -16,8 +16,14 @@ export class ServiceCallSchema {
         this.evaluateDataAsTemplate = config.evaluate_data_as_template ?? false;
     }
 
-    public apply(entityId: string, selection: unknown[], repeats: number, variables: VariablesStorage): ServiceCall {
-        const defaultVariables = ServiceCallSchema.getDefaultVariables(entityId, selection, repeats);
+    public apply(
+        entityId: string,
+        selection: unknown[],
+        repeats: number,
+        variables: VariablesStorage,
+        pointSelection?: boolean,
+    ): ServiceCall {
+        const defaultVariables = ServiceCallSchema.getDefaultVariables(entityId, selection, repeats, pointSelection);
         let serviceData: ReplacedKey | undefined = undefined;
         let target: ReplacedKey | undefined = undefined;
         if (this.serviceData) {
@@ -35,7 +41,18 @@ export class ServiceCallSchema {
         );
     }
 
-    public static getDefaultVariables(entityId: string, selection: unknown[], repeats: number): VariablesStorage {
+    /**
+     * `pointSelection` says whether the selection is one point (a point mode). Without it, only a
+     * two-number selection counts as a point, as before; with it, a point mode's `[x, y, repeats]`
+     * also fills `[[point_x]]`/`[[point_y]]` and no other mode does.
+     */
+    public static getDefaultVariables(
+        entityId: string,
+        selection: unknown[],
+        repeats: number,
+        pointSelection?: boolean,
+    ): VariablesStorage {
+        const isPoint = this.isPoint(selection, pointSelection);
         const variables: VariablesStorage = {};
         variables[TemplatableValue.ENTITY_ID] = entityId;
         variables[TemplatableValue.SELECTION] = selection;
@@ -45,13 +62,14 @@ export class ServiceCallSchema {
             .replaceAll("]", "")
             .replaceAll('"', "");
         variables[TemplatableValue.REPEATS] = repeats;
-        variables[TemplatableValue.POINT_X] = this.isPoint(selection) ? (selection[0] as number) : "";
-        variables[TemplatableValue.POINT_Y] = this.isPoint(selection) ? (selection[1] as number) : "";
+        variables[TemplatableValue.POINT_X] = isPoint ? (selection[0] as number) : "";
+        variables[TemplatableValue.POINT_Y] = isPoint ? (selection[1] as number) : "";
         return variables;
     }
 
-    private static isPoint(selection: unknown[]): boolean {
-        // `[x, y]`, or `[x, y, repeats]` when a point mode has INTERNAL repeats.
-        return typeof selection[0] === "number" && typeof selection[1] === "number" && (selection.length == 2 || selection.length == 3);
+    private static isPoint(selection: unknown[], pointSelection?: boolean): boolean {
+        const numbers = typeof selection[0] === "number" && typeof selection[1] === "number";
+        if (pointSelection === undefined) return numbers && selection.length == 2;
+        return pointSelection && numbers && (selection.length == 2 || selection.length == 3);
     }
 }

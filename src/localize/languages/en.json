@@ -279,7 +279,8 @@
     "popups": {
         "success": "Success!",
         "no_selection": "No selection provided",
-        "failed": "Failed to call service"
+        "failed": "Failed to call service",
+        "in_progress": "Already sending, wait for the answer"
     },
     "editor": {
         "description": {

@@ -21,7 +21,23 @@
                             "cleanings": "[[repeats]]"
                         }
                     }
-                }
+                },
+                "legacy_service_call_schemas": [
+                    {
+                        "before_ha_version": "2026.3",
+                        "service_call_schema": {
+                            "service": "vacuum.send_command",
+                            "service_data": {
+                                "entity_id": "[[entity_id]]",
+                                "command": "spot_area",
+                                "params": {
+                                    "rooms": "[[selection_unwrapped]]",
+                                    "cleanings": "[[repeats]]"
+                                }
+                            }
+                        }
+                    }
+                ]
             },
             "vacuum_clean_zone": {
                 "name": "map_mode.vacuum_clean_zone",
@@ -40,7 +56,22 @@
                             "coordinates": "[ [[selection_unwrapped]] ]|[[jsonify]]"
                         }
                     }
-                }
+                },
+                "legacy_service_call_schemas": [
+                    {
+                        "before_ha_version": "2026.3",
+                        "service_call_schema": {
+                            "service": "vacuum.send_command",
+                            "service_data": {
+                                "entity_id": "[[entity_id]]",
+                                "command": "custom_area",
+                                "params": {
+                                    "coordinates": "[[selection_unwrapped]]"
+                                }
+                            }
+                        }
+                    }
+                ]
             },
             "vacuum_clean_zone_predefined": {
                 "name": "map_mode.vacuum_clean_zone_predefined",
@@ -59,7 +90,22 @@
                             "coordinates": "[ [[selection_unwrapped]] ]|[[jsonify]]"
                         }
                     }
-                }
+                },
+                "legacy_service_call_schemas": [
+                    {
+                        "before_ha_version": "2026.3",
+                        "service_call_schema": {
+                            "service": "vacuum.send_command",
+                            "service_data": {
+                                "entity_id": "[[entity_id]]",
+                                "command": "custom_area",
+                                "params": {
+                                    "coordinates": "[[selection_unwrapped]]"
+                                }
+                            }
+                        }
+                    }
+                ]
             }
         }
     },

@@ -6,6 +6,7 @@ import type {
     XiaomiVacuumMapCardConfig,
 } from "../../src/types/types";
 import { setPresetIndex } from "../../src/card/presets";
+import { runSelection as run } from "../../src/card/run";
 import { createContext } from "../../src/card/selection";
 import { handleActionWithConfig } from "../../src/card/actions";
 import type { XiaomiVacuumMapCard } from "../../src/xiaomi-vacuum-map-card";
@@ -158,7 +159,7 @@ describe("fire-and-forget service calls", () => {
         setPresetIndex(card.element as unknown as XiaomiVacuumMapCard, 1, true);
         await settle(card.element, 300);
 
-        expect(hass.callService).toHaveBeenCalledWith("script", "turn_on", { entity_id: "script.prepare" }, undefined);
+        expect(hass.callService).toHaveBeenCalledWith("script", "turn_on", { entity_id: "script.prepare" }, undefined, false);
         expect(toast).toHaveBeenCalledWith("popups.failed", "mdi:close", false, "Service script.turn_on not found");
     });
 
@@ -170,7 +171,7 @@ describe("fire-and-forget service calls", () => {
         context.toggleEntity("input_boolean.kitchen_point");
         await settle(card.element);
 
-        expect(hass.callService).toHaveBeenCalledWith("homeassistant", "toggle", { entity_id: "input_boolean.kitchen_point" }, undefined);
+        expect(hass.callService).toHaveBeenCalledWith("homeassistant", "toggle", { entity_id: "input_boolean.kitchen_point" }, undefined, false);
         expect(toast).toHaveBeenCalledWith("popups.failed", "mdi:close", false, "Entity not found");
     });
 
@@ -194,5 +195,89 @@ describe("fire-and-forget service calls", () => {
             { entity_id: "vacuum.roborock_s7" },
         ]);
         expect(toast).toHaveBeenCalledWith("popups.failed", "mdi:close", false, "Vacuum is offline");
+    });
+});
+
+const TEMPLATED_ROOM_MODE = {
+    ...ROOM_MODE,
+    service_call_schema: {
+        service: "vacuum.send_command",
+        evaluate_data_as_template: true,
+        service_data: { entity_id: "[[entity_id]]", command: "app_segment_clean", params: "{{ [[selection]] | length }}" },
+    },
+} as const;
+
+describe("one run at a time", () => {
+    it("ignores a second tap while a templated run is still rendering, and says so", async () => {
+        const { card, hass, toast } = await mount({}, [TEMPLATED_ROOM_MODE]);
+        // Home Assistant answers the render only when the test says so, like a slow websocket.
+        const pendingRenders: Array<() => void> = [];
+        vi.mocked(hass.connection.subscribeMessage).mockImplementation((async (
+            callback: (msg: Record<string, unknown>) => void,
+            message: { template: string },
+        ) => {
+            pendingRenders.push(() => callback({ result: JSON.parse(message.template.replace(/\{\{[^}]*\}\}/, "1")) }));
+            return () => undefined;
+        }) as never);
+        await clickRoom(card, "1");
+
+        const first = run(card.element as unknown as XiaomiVacuumMapCard, false);
+        const second = run(card.element as unknown as XiaomiVacuumMapCard, false);
+        await settle(card.element);
+        // The first run renders, sends and finishes before the second render arrives.
+        pendingRenders[0]?.();
+        await first;
+        pendingRenders[1]?.();
+        await second;
+        await settle(card.element);
+
+        expect(hass.callService).toHaveBeenCalledTimes(1);
+        expect(toast).toHaveBeenCalledWith("popups.in_progress", "mdi:timer-sand", false);
+    });
+
+    it("does not block a debug run, which sends nothing", async () => {
+        const { card, hass } = await mount();
+        const alert = vi.spyOn(window, "alert").mockImplementation(() => undefined);
+        await clickRoom(card, "1");
+
+        await Promise.all([
+            run(card.element as unknown as XiaomiVacuumMapCard, true),
+            run(card.element as unknown as XiaomiVacuumMapCard, true),
+        ]);
+
+        expect(alert).toHaveBeenCalledTimes(2);
+        expect(hass.callService).not.toHaveBeenCalled();
+    });
+});
+
+describe("one notification per failure", () => {
+    it("asks Home Assistant not to show its own notification, so a rejection is reported once", async () => {
+        const { card, hass } = await mount();
+        await clickRoom(card, "1");
+
+        await runSelection(card);
+
+        expect((vi.mocked(hass.callService).mock.calls[0] as unknown[])[4]).toBe(false);
+    });
+
+    it("shows Home Assistant's translated exception message when there is one", async () => {
+        const { card, hass, toast } = await mount();
+        const rejection = {
+            code: "home_assistant_error",
+            message: "raw message",
+            translation_domain: "vacuum",
+            translation_key: "offline",
+            translation_placeholders: { name: "Robot" },
+        };
+        vi.mocked(hass.callService).mockRejectedValue(rejection);
+        (hass as unknown as { loadBackendTranslation: unknown }).loadBackendTranslation = vi.fn(
+            async () => (key: string, placeholders: Record<string, string>) =>
+                key === "component.vacuum.exceptions.offline.message" ? `${placeholders.name} is offline` : "",
+        );
+        await clickRoom(card, "1");
+
+        await runSelection(card);
+
+        expect(toast).toHaveBeenCalledWith("popups.failed", "mdi:close", false, "Robot is offline");
     });
 });

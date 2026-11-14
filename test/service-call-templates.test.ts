@@ -42,8 +42,14 @@ function mode(config: Partial<MapModeConfig>): MapMode {
     return new MapMode("Xiaomi Miio", { name: "m", icon: "mdi:x", ...config } as MapModeConfig, "en");
 }
 
-function fill(data: Record<string, unknown>, selection: unknown[], repeats = 1, variables = {}): Record<string, unknown> {
-    return new ServiceCallSchema({ service: "a.b", service_data: data }).apply(ENTITY, selection, repeats, variables)
+function fill(
+    data: Record<string, unknown>,
+    selection: unknown[],
+    repeats = 1,
+    variables = {},
+    pointSelection?: boolean,
+): Record<string, unknown> {
+    return new ServiceCallSchema({ service: "a.b", service_data: data }).apply(ENTITY, selection, repeats, variables, pointSelection)
         .serviceData as Record<string, unknown>;
 }
 
@@ -76,7 +82,8 @@ describe("placeholders", () => {
 
     it("give point_x and point_y for a point, also when the repeats are inside it", () => {
         expect(fill({ x: "[[point_x]]", y: "[[point_y]]" }, [25500, 25000])).toEqual({ x: 25500, y: 25000 });
-        expect(fill({ x: "[[point_x]]", y: "[[point_y]]" }, [25500, 25000, 2])).toEqual({ x: 25500, y: 25000 });
+        expect(fill({ x: "[[point_x]]", y: "[[point_y]]" }, [25500, 25000, 2], 1, {}, true)).toEqual({ x: 25500, y: 25000 });
+        expect(fill({ x: "[[point_x]]", y: "[[point_y]]" }, [25500, 25000, 2], 1, {}, false)).toEqual({ x: "", y: "" });
         expect(fill({ x: "[[point_x]]" }, [[25500, 25000]])).toEqual({ x: "" });
     });
 
@@ -134,5 +141,77 @@ describe("room selection and repeats types", () => {
             ...zones,
         ]);
         expect(mode({ selection_type: "MANUAL_RECTANGLE", repeats_type: "EXTERNAL" }).repeatSelection(zones, 3)).toEqual(zones);
+    });
+});
+
+describe("point placeholders follow the mode's selection type", () => {
+    const schema = { service: "a.b", service_data: { x: "[[point_x]]", y: "[[point_y]]" } };
+    it("fills them for a point mode with INTERNAL repeats", async () => {
+        const m = mode({ selection_type: "MANUAL_POINT", repeats_type: "INTERNAL", service_call_schema: schema });
+        expect((await m.getServiceCall(noRender, ENTITY, [25500, 25000, 2], 2, {})).serviceData).toEqual({ x: 25500, y: 25000 });
+    });
+
+    it("leaves them empty for three numeric room ids", async () => {
+        const m = mode({ selection_type: "ROOM", service_call_schema: schema });
+        expect((await m.getServiceCall(noRender, ENTITY, [13, 14, 15], 1, {})).serviceData).toEqual({ x: "", y: "" });
+    });
+});
+
+describe("Home Assistant version dependent payloads (Deebot / Ecovacs)", () => {
+    const hassAt = (version?: string): HomeAssistantFixed =>
+        ({ config: version === undefined ? {} : { version } }) as unknown as HomeAssistantFixed;
+    const deebot = (template: string): MapMode =>
+        new MapMode("DeebotUniverse/Deebot-4-Home-Assistant", { template } as MapModeConfig, "en");
+
+    it.each([
+        ["2026.2.3", "16,17", "25500,25500,26500,26500"],
+        ["2025.12.0", "16,17", "25500,25500,26500,26500"],
+        ["2026.3.0", [16, 17], [25500, 25500, 26500, 26500]],
+        ["2026.11.0", [16, 17], [25500, 25500, 26500, 26500]],
+        ["2026.3.0.dev0", [16, 17], [25500, 25500, 26500, 26500]],
+        [undefined, [16, 17], [25500, 25500, 26500, 26500]],
+    ])("Home Assistant %s gets rooms %j and coordinates %j", async (version, rooms, coordinates) => {
+        const segmentMode = deebot("vacuum_clean_segment");
+        const selection = segmentMode.getRoomSelection(["16", "17"], 2);
+        const segment = await segmentMode.getServiceCall(hassAt(version), ENTITY, selection, 2, {});
+        expect(segment.serviceData).toEqual({
+            entity_id: ENTITY,
+            command: "spot_area",
+            params: { rooms, cleanings: 2 },
+        });
+        const zone = await deebot("vacuum_clean_zone").getServiceCall(hassAt(version), ENTITY, [[25500, 25500, 26500, 26500]], 1, {});
+        expect(zone.serviceData).toEqual({ entity_id: ENTITY, command: "custom_area", params: { coordinates } });
+    });
+
+    it("never replaces a service_call_schema the user configured", async () => {
+        const custom = { service: "x.y", service_data: { ids: "[[selection]]" } };
+        const m = new MapMode(
+            "DeebotUniverse/Deebot-4-Home-Assistant",
+            { template: "vacuum_clean_segment", service_call_schema: custom } as MapModeConfig,
+            "en",
+        );
+        const call = await m.getServiceCall(hassAt("2026.2.0"), ENTITY, m.getRoomSelection(["16"], 1), 1, {});
+        expect([call.domain, call.service, call.serviceData]).toEqual(["x", "y", { ids: [16] }]);
+    });
+});
+
+describe("normalizeJinjaQuotes on the shipped templates", () => {
+    it("finds only complete, single Jinja blocks, so literal JSON braces are never unescaped", async () => {
+        const { contractCases } = await import("./contract/service-contracts");
+        const templated = contractCases().filter(c => c.templated);
+        expect(templated.length).toBeGreaterThan(0);
+        for (const testCase of templated) {
+            const call = testCase.mode.serviceCallSchema.apply(ENTITY, testCase.selection, testCase.repeats, testCase.variables);
+            const text = JSON.stringify(call.serviceData);
+            for (const block of text.match(/\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g) ?? []) {
+                const inner = block.slice(2, -2);
+                expect(inner, `${testCase.name}: ${block}`).not.toMatch(/\{\{|\{%|\}\}|%\}/);
+            }
+        }
+    });
+
+    it("leaves a JSON payload with nested objects untouched", () => {
+        const template = JSON.stringify({ payload: '{"a": {"b": {"c": 1}}, "n": {{ 1 + 1 }}}' });
+        expect(normalizeJinjaQuotes(template)).toBe(template);
     });
 });

@@ -19,7 +19,11 @@ To add a new platform follow these steps:
 1. Fork this repository
 1. Create a new json file in `src/model/generators/platform_templates` directory
 1. Copy content of [`src/model/generators/platform_templates/new.json`](/src/model/generators/platform_templates/new.json) file to a newly created file
-1. Adjust configuration according to parameters of added platform
+1. Adjust configuration according to parameters of added platform. When an integration changed its
+   service payload in a Home Assistant release, keep the old payload for older versions in the mode's
+   `legacy_service_call_schemas` (`[{ "before_ha_version": "2026.3", "service_call_schema": {...} }]`);
+   the card picks it from the running Home Assistant version. Check the payloads with
+   `test/contract/service-contracts.ts`.
 1. Import your file in [`src/model/generators/platform-generator.ts`](/src/model/generators/platform-generator.ts)
 1. Add a new entry in [supported platforms list](/docs/platforms.md#supported-vacuum-platforms)
 1. Create a pull request

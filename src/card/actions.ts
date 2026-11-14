@@ -41,7 +41,12 @@ export function handleActionWithConfig(
         }
         const entity_id = config.hasOwnProperty("entity") ? config["entity"] : currentPreset.entity;
         const { selection, variables } = node._getSelection(currentMode);
-        const defaultVariables = ServiceCallSchema.getDefaultVariables(entity_id, selection, node.repeats);
+        const defaultVariables = ServiceCallSchema.getDefaultVariables(
+            entity_id,
+            selection,
+            node.repeats,
+            currentMode?.isPointSelection(),
+        );
         const filled = getFilledTemplate(config as Record<string, unknown>, defaultVariables, itemVariables,
             node.internalVariables, currentMode?.variables ?? {}, variables);
         // `handleAction` sends `call-service` and `toggle` without waiting for the answer, so a

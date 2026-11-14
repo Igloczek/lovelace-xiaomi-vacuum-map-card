@@ -246,7 +246,8 @@
     "popups": {
         "success": "Usługa wywołana!",
         "no_selection": "Nie wybrano zaznaczenia",
-        "failed": "Błąd wywołania usługi"
+        "failed": "Błąd wywołania usługi",
+        "in_progress": "Trwa wysyłanie, poczekaj na odpowiedź"
     },
     "editor": {
         "description": {

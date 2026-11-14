@@ -14,6 +14,7 @@ import { PlatformGenerator } from "../generators/platform-generator";
 import { evaluateJinjaTemplate, normalizeJinjaQuotes, replaceInTarget } from "../../utils";
 import { Modifier } from "./modifier";
 import { HomeAssistantFixed } from "../../types/fixes";
+import { isHaVersionBefore } from "../ha-version";
 
 export class MapMode {
     private static readonly PREDEFINED_SELECTION_TYPES = [
@@ -34,6 +35,8 @@ export class MapMode {
     public repeatsType: RepeatsType;
     public maxRepeats: number;
     public serviceCallSchema: ServiceCallSchema;
+    /** Template schemas for older Home Assistant versions, oldest limit first. */
+    public legacyServiceCallSchemas: Array<{ beforeHaVersion: string; schema: ServiceCallSchema }> = [];
     public predefinedSelections: PredefinedSelectionConfig[];
     public variables: VariablesStorage;
 
@@ -66,8 +69,9 @@ export class MapMode {
         repeats: number,
         selectionVariables: VariablesStorage,
     ): Promise<ServiceCall> {
-        let serviceCall = this._applyData(entityId, selection, repeats, selectionVariables);
-        if (this.serviceCallSchema.evaluateDataAsTemplate) {
+        const schema = this.getServiceCallSchema(hass?.config?.version);
+        let serviceCall = this._applyData(schema, entityId, selection, repeats, selectionVariables);
+        if (schema.evaluateDataAsTemplate) {
             // A failed evaluation throws: sending the unevaluated `{{ }}` text to the vacuum would be
             // wrong, and the caller reports the failure instead of doing nothing.
             const template = normalizeJinjaQuotes(JSON.stringify(serviceCall.serviceData));
@@ -90,6 +94,14 @@ export class MapMode {
             }
         }
         return serviceCall;
+    }
+
+    /** The schema for a Home Assistant version: a template's legacy schema, or the current one. */
+    public getServiceCallSchema(haVersion: string | undefined): ServiceCallSchema {
+        return (
+            this.legacyServiceCallSchemas.find(legacy => isHaVersionBefore(haVersion, legacy.beforeHaVersion))?.schema ??
+            this.serviceCallSchema
+        );
     }
 
     /**
@@ -165,16 +177,35 @@ export class MapMode {
         if (!config.repeats_type && templateValue.repeats_type)
             this.repeatsType = RepeatsType[templateValue.repeats_type];
         if (!config.max_repeats && templateValue.max_repeats) this.maxRepeats = templateValue.max_repeats;
-        if (!config.service_call_schema && templateValue.service_call_schema)
+        if (!config.service_call_schema && templateValue.service_call_schema) {
             this.serviceCallSchema = new ServiceCallSchema(templateValue.service_call_schema);
+            this.legacyServiceCallSchemas = (templateValue.legacy_service_call_schemas ?? [])
+                .map(legacy => ({
+                    beforeHaVersion: legacy.before_ha_version,
+                    schema: new ServiceCallSchema(legacy.service_call_schema),
+                }))
+                .sort((a, b) => (isHaVersionBefore(a.beforeHaVersion, b.beforeHaVersion) ? -1 : 1));
+        }
+    }
+
+    /** True for the selection types whose selection is one point, `[x, y]` or `[x, y, repeats]`. */
+    public isPointSelection(): boolean {
+        return this.selectionType === SelectionType.MANUAL_POINT || this.selectionType === SelectionType.PREDEFINED_POINT;
     }
 
     private _applyData(
+        schema: ServiceCallSchema,
         entityId: string,
         selection: unknown[],
         repeats: number,
         selectionVariables: VariablesStorage,
     ): ServiceCall {
-        return this.serviceCallSchema.apply(entityId, selection, repeats, { ...this.variables, ...selectionVariables });
+        return schema.apply(
+            entityId,
+            selection,
+            repeats,
+            { ...this.variables, ...selectionVariables },
+            this.isPointSelection(),
+        );
     }
 }

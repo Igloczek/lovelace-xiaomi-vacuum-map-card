@@ -5,9 +5,9 @@
 This platform can be used to control vacuums connected to Home Assistant using Deebot 4 Home Assistant integration created by [@DeebotUniverse](https://github.com/DeebotUniverse).
 
 The integration is now Home Assistant's built-in [Ecovacs](https://www.home-assistant.io/integrations/ecovacs/)
-integration. Since Home Assistant 2026.3 it expects room ids and zone coordinates as lists, so the
-templates send `rooms: [14, 19]` and `coordinates: [x1, y1, x2, y2]`. The archived custom integration
-expected comma-separated strings and does not work with these templates.
+integration. Since Home Assistant 2026.3 it expects room ids and zone coordinates as lists
+(`rooms: [14, 19]`, `coordinates: [x1, y1, x2, y2]`); before, it expected comma-separated strings
+(`rooms: "14,19"`). The card reads the Home Assistant version and sends the matching format.
 
 ## Available templates
 

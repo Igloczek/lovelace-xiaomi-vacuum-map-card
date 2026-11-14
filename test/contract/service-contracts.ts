@@ -677,6 +677,49 @@ export const CONTRACTS: Record<string, Record<string, ServiceContract>> = {
     "Setup decimal": setupContracts(),
 };
 
+/**
+ * Contracts for a template's `legacy_service_call_schemas`: what the integration accepted on a
+ * Home Assistant older than the entry's `before_ha_version`, checked at `haVersion`.
+ */
+const ECOVACS_2026_2 =
+    "home-assistant/core tag 2026.2.0 ecovacs/vacuum.py L357,365 (`str(params[\"rooms\"])`, deebot-client 17.1.0)";
+const commaIds: Validator = (v, p) =>
+    typeof v === "string" && /^\d+(,\d+)*$/.test(v) ? ok : fail(p, "expected comma-separated ids", v);
+const commaCoordinates: Validator = (v, p) =>
+    typeof v === "string" && /^-?\d+(\.\d+)?(,-?\d+(\.\d+)?){3,}$/.test(v) ? ok : fail(p, "expected comma-separated coordinates", v);
+
+export const LEGACY_CONTRACTS: Record<string, Record<string, { haVersion: string; contract: ServiceContract }>> = {
+    "DeebotUniverse/Deebot-4-Home-Assistant": {
+        vacuum_clean_segment: {
+            haVersion: "2026.2.3",
+            contract: {
+                service: "vacuum.send_command",
+                data: sendCommand("spot_area", object({ required: { rooms: commaIds }, optional: { cleanings: strictInt } })),
+                source: ECOVACS_2026_2,
+            },
+        },
+        vacuum_clean_zone: {
+            haVersion: "2026.2.3",
+            contract: {
+                service: "vacuum.send_command",
+                data: sendCommand("custom_area", object({ required: { coordinates: commaCoordinates }, optional: { cleanings: strictInt } })),
+                source: ECOVACS_2026_2,
+            },
+        },
+        vacuum_clean_zone_predefined: {
+            haVersion: "2026.2.3",
+            contract: {
+                service: "vacuum.send_command",
+                data: sendCommand("custom_area", object({ required: { coordinates: commaCoordinates }, optional: { cleanings: strictInt } })),
+                source: ECOVACS_2026_2,
+            },
+        },
+    },
+};
+
+/** The Home Assistant version a case runs at unless it checks a legacy schema. */
+export const CURRENT_HA_VERSION = "2026.11.0";
+
 function followPath(service: string): ServiceContract {
     // `script.vacuum_follow_path` is the script from docs/follow_path.yaml, which takes these fields.
     return {
@@ -756,6 +799,8 @@ export interface ContractCase {
     /** `id_type` forced by the case, or `undefined` for the template's own. */
     idType: "number" | "string" | undefined;
     ids: IdVariant | undefined;
+    /** The Home Assistant version the call is built for (`hass.config.version`). */
+    haVersion: string;
     mode: MapMode;
     selection: unknown[];
     repeats: number;
@@ -825,19 +870,35 @@ export function contractCases(): ContractCase[] {
                     const repeats = Math.min(2, mode.maxRepeats);
                     const selection = selectionFor(mode, ids, repeats);
                     const roomCount = isRoom ? selection.filter(s => typeof s === "string" || typeof s === "number").length : 1;
-                    cases.push({
-                        platform,
-                        template,
-                        idType,
-                        ids,
-                        mode,
-                        selection,
-                        repeats,
-                        variables: variablesFor(platform, mode, roomCount),
-                        contract: CONTRACTS[platform]?.[template],
-                        templated: mode.serviceCallSchema.evaluateDataAsTemplate,
-                        name: [platform, template, idType ? `id_type=${idType}` : "", ids ?? ""].filter(Boolean).join(" · "),
-                    });
+                    const legacy = LEGACY_CONTRACTS[platform]?.[template];
+                    const versions = [
+                        { haVersion: CURRENT_HA_VERSION, contract: CONTRACTS[platform]?.[template] },
+                        ...(legacy ? [legacy] : []),
+                    ];
+                    for (const { haVersion, contract } of versions) {
+                        cases.push({
+                            platform,
+                            template,
+                            idType,
+                            ids,
+                            haVersion,
+                            mode,
+                            selection,
+                            repeats,
+                            variables: variablesFor(platform, mode, roomCount),
+                            contract,
+                            templated: mode.getServiceCallSchema(haVersion).evaluateDataAsTemplate,
+                            name: [
+                                platform,
+                                template,
+                                idType ? `id_type=${idType}` : "",
+                                ids ?? "",
+                                haVersion === CURRENT_HA_VERSION ? "" : `HA ${haVersion}`,
+                            ]
+                                .filter(Boolean)
+                                .join(" · "),
+                        });
+                    }
                 }
             }
         }
@@ -857,7 +918,11 @@ export function isExpectedToPass(testCase: ContractCase): boolean {
 }
 
 export async function buildServiceCall(testCase: ContractCase, hass: HomeAssistantFixed): Promise<ServiceCall> {
-    return testCase.mode.getServiceCall(hass, ENTITY_ID, testCase.selection, testCase.repeats, testCase.variables);
+    // A real hass keeps its connection; only the version the template sees is set by the case.
+    const versioned = Object.assign(Object.create(hass as object), {
+        config: { ...((hass as { config?: object }).config ?? {}), version: testCase.haVersion },
+    }) as HomeAssistantFixed;
+    return testCase.mode.getServiceCall(versioned, ENTITY_ID, testCase.selection, testCase.repeats, testCase.variables);
 }
 
 /** Errors of a built call against its contract: wrong service, or data the integration rejects. */
