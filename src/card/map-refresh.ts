@@ -2,15 +2,31 @@
 import { state } from "lit/decorators";
 import { CardPresetConfig } from "../types/types";
 import { DISCONNECTED_IMAGE, DISCONNECTION_TIME } from "../const";
-import { decideMapRefresh, MAP_REFRESH_INTERVAL_MS, MapRefreshState } from "../model/map-refresh-policy";
+import {
+    cameraRefreshKey,
+    decideMapRefresh,
+    MAP_REFRESH_INTERVAL_MS,
+    MapRefreshState,
+} from "../model/map-refresh-policy";
 import type { XiaomiVacuumMapCard } from "../xiaomi-vacuum-map-card";
 
 export function getMapSrc(card: XiaomiVacuumMapCard, config: CardPresetConfig): string {
     if (config.map_source.camera) {
-        if (card.connected && isHassFresh(card)) {
+        if (isHassFresh(card)) {
+            // A detached card can still render (a hass update during a Lovelace re-layout).
+            // Detached is not disconnected from Home Assistant: keep the snapshot already on
+            // screen, without a new decision, so nothing is requested and the placeholder's load
+            // is not replayed onto the canvas when the card is attached again.
             const camera = config.map_source.camera;
-            const state = decideCardMapRefresh(card, camera);
-            return `${card.hass.hassUrl(state.entityPicture)}&v=${state.version}`;
+            const frozen = card.mapRefreshState;
+            const state = card.connected
+                ? decideCardMapRefresh(card, camera)
+                : frozen?.cameraKey.startsWith(`${camera}|`)
+                  ? frozen
+                  : undefined;
+            if (state) {
+                return `${card.hass.hassUrl(state.entityPicture)}&v=${state.version}`;
+            }
         }
         return DISCONNECTED_IMAGE;
     }
@@ -50,8 +66,12 @@ export function decideCardMapRefresh(card: XiaomiVacuumMapCard, camera: string):
         previous: card.mapRefreshState,
         now,
         hidden,
+        loadingSince: card.mapImageLoadingSince,
     });
     card.mapRefreshState = decision.state;
+    if (decision.changed) {
+        card.mapImageLoadingSince = now;
+    }
     // Suppressed here only means "the interval has not elapsed": the policy cannot suppress a
     // visible decision for any other reason once it has a previous state. The render that would
     // have fetched the snapshot is replayed when the window ends instead of waiting for the
@@ -83,6 +103,30 @@ export function scheduleTrailingMapRefresh(card: XiaomiVacuumMapCard, state: Map
         }
         card.requestUpdate();
     }, delay);
+}
+
+/**
+ * The current snapshot finished loading (or failed). A camera change the policy held back while
+ * it loaded is fetched now, as one request for the newest state, instead of at the next render.
+ */
+export function mapImageSettled(card: XiaomiVacuumMapCard): void {
+    if (card.mapImageLoadingSince === undefined) {
+        return;
+    }
+    card.mapImageLoadingSince = undefined;
+    const camera = card._getCurrentPreset()?.map_source?.camera;
+    const entity = camera ? card.hass?.states[camera] : undefined;
+    if (!camera || !entity || !card.mapRefreshState || !card.connected) {
+        return;
+    }
+    const liveKey = cameraRefreshKey({
+        cameraId: camera,
+        lastUpdated: entity.last_updated ?? entity.last_changed,
+        entityPicture: entity.attributes?.entity_picture as string | undefined,
+    });
+    if (liveKey !== card.mapRefreshState.cameraKey) {
+        card.requestUpdate();
+    }
 }
 
 /**

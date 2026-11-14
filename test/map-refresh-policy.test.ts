@@ -152,6 +152,34 @@ describe("map refresh policy", () => {
         expect(second.changed).toBe(true);
     });
 
+    it("holds a camera change while the current snapshot is still loading", () => {
+        const first = decide(T0);
+        const changed = { ...CAMERA, lastUpdated: "2026-11-01T10:00:01.000Z" };
+        const held = decideMapRefresh({ camera: changed, previous: first.state, now: T0 + 1000, hidden: false, loadingSince: T0 });
+
+        expect(held.changed).toBe(false);
+        expect(held.state).toBe(first.state);
+        // Once the snapshot has loaded, the same change is fetched.
+        expect(decide(T0 + 1200, held.state, changed).changed).toBe(true);
+    });
+
+    it("stops holding a camera change once the snapshot has loaded for a whole interval", () => {
+        const first = decide(T0);
+        const changed = { ...CAMERA, lastUpdated: "2026-11-01T10:00:01.000Z" };
+        const input = { camera: changed, previous: first.state, hidden: false, loadingSince: T0 };
+
+        expect(decideMapRefresh({ ...input, now: T0 + MAP_REFRESH_INTERVAL_MS - 1 }).changed).toBe(false);
+        expect(decideMapRefresh({ ...input, now: T0 + MAP_REFRESH_INTERVAL_MS }).changed).toBe(true);
+    });
+
+    it("never holds a switch to a different camera behind the old camera's download", () => {
+        const first = decide(T0);
+        const other = { ...CAMERA, cameraId: "camera.other_map" };
+        const switched = decideMapRefresh({ camera: other, previous: first.state, now: T0 + 100, hidden: false, loadingSince: T0 });
+
+        expect(switched.changed).toBe(true);
+    });
+
     it("uses the default interval when none is configured", () => {
         expect(MAP_REFRESH_INTERVAL_MS).toBe(5000);
 

@@ -80,7 +80,7 @@ Features include:
     <td>boolean</td>
     <td>no</td>
     <td><code>true</code></td>
-    <td>Remembers zoom level and map position across page reloads, separately per card, per preset and per map id</td>
+    <td>Remembers zoom level and map position across page reloads, separately per card, per preset and per map id. The position follows the map, so a view reopened at another card width frames the same part of the map</td>
   </tr>
   <tr>
     <td><code>persist_map_lock</code></td>

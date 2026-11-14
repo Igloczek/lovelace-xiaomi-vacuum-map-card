@@ -8,6 +8,7 @@ import {
     loadSyntheticFixture,
     mountCard,
     useHarnessClock,
+    withState,
 } from "../harness";
 
 type CardWithDelayedWork = {
@@ -159,5 +160,31 @@ describe("card disconnect and delayed work", () => {
 
         expect(canvas().width).toBe(321);
         expect(canvas().height).toBe(123);
+    });
+});
+
+describe("camera map while detached", () => {
+    it("keeps the camera snapshot instead of the disconnected placeholder when a detached card renders", async () => {
+        const clock = useHarnessClock();
+        const fixture = loadSyntheticFixture();
+        const card = await mountCard(fixtureConfig(fixture), fixtureHass(fixture));
+        await clock.advance(1000);
+        const image = (): HTMLImageElement => card.shadowRoot.getElementById("map-image-source") as HTMLImageElement;
+        const cameraSrc = image().getAttribute("src");
+        expect(cameraSrc).toContain("/api/camera_proxy/");
+
+        // A Lovelace re-layout detaches the card; a hass update that lands meanwhile still renders
+        // it. Being detached is not a lost Home Assistant connection: the map must not be swapped
+        // for the placeholder, whose load would then be replayed onto the canvas on re-attach.
+        const parent = card.element.parentElement as HTMLElement;
+        card.element.remove();
+        const vacuumId = Object.keys(card.hass.states).find(id => id.startsWith("vacuum.")) as string;
+        card.element.hass = withState(card.hass, vacuumId, { state: "cleaning" }).hass;
+        await card.element.updateComplete;
+        expect(image().getAttribute("src")).toBe(cameraSrc);
+
+        parent.appendChild(card.element);
+        await clock.advance(1000);
+        expect(image().getAttribute("src")).toBe(cameraSrc);
     });
 });

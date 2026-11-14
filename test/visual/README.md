@@ -29,6 +29,21 @@ is involved: `index.html` plus `harness.js` mount the card element with a mock `
 | `a sections-view grid cell makes the card fill its height and scroll` | the reflected `layout="grid"` hook makes the card fill a fixed-height cell and scroll inside it instead of overflowing |
 | `horizontal layout keeps room, mode and tile interactions` | room hit-testing, opening the mode dropdown and selecting a mode (the mode changes), a tile click and the map-before-controls DOM/focus order in the horizontal arrangement |
 
+`map-view-robustness.spec.ts` asserts geometry only — no screenshots — so it also runs on a
+developer machine. It reads the map point in the middle of the viewport from the rendered
+transform, and the living room's outline against the room's place in the rendered image:
+
+| Test group | What it locks down |
+| --- | --- |
+| `persisted map view across card widths` | a view stored at 800 px reopens on the same map point at 400 px (rotation 0 and 90), and resizing a zoomed card keeps that point in view and stores the rescaled view |
+| `camera image reloads` | three snapshots while zoomed and rotated keep the view, `realScale` and the overlay; a camera image that doubles in size keeps the overlay on its room |
+| `re-attach` | a card removed and re-added during its delayed work and a snapshot load keeps its view, overlay and no lingering transition |
+| `touch gestures` | real CDP touch input: a two-finger twist rotates, stays aligned, does not select the room under the fingers and is remembered; a twist near 90° snaps; a locked map ignores pans and twists; `two_finger_pan` pans only with two fingers; a one-finger tap still selects a room |
+| `map appearance` | `transparent_background` clears the white background in a dark theme, keeps room colours and detection, and labels stay light with a dark outline |
+| `horizontal layout at phone widths` | at 320, 360 and 412 px the card does not overflow sideways, the controls sit right of the map and the map keeps 40 % of the width |
+| `cards mounted while hidden` | a card created inside a `display: none` container applies its stored view and base scale once shown, with no further `hass` update |
+| `map lock persistence` | the lock and the locked view survive a reload; `persist_map_lock: false` keeps the view but not the lock |
+
 The horizontal scenarios mount a fixture with three modes, four icons and eight tiles so the
 clamped controls column has to wrap and scroll. `#card-root` is 400 px wide by default, so each
 scenario sets the root width explicitly; the vertical baseline keeps the default width and is

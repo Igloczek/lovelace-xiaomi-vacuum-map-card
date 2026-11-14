@@ -7,6 +7,13 @@ export interface MapView {
     y: number;
     rotation: number;
     locked?: boolean;
+    /**
+     * Untransformed width of the map content, in CSS pixels, that `x`/`y` were measured at. The
+     * offsets are pixels, so a view reopened at another card width has to be scaled by
+     * `currentWidth / width` to frame the same part of the map. Entries saved before this field
+     * existed have no width and are applied unscaled.
+     */
+    width?: number;
 }
 
 interface StoredMapView {
@@ -15,6 +22,7 @@ interface StoredMapView {
     y: number;
     r?: number;
     l?: boolean;
+    w?: number;
     ts: number;
 }
 
@@ -66,6 +74,7 @@ export function getMapView(key: string): MapView | undefined {
     const x = Number(entry.x);
     const y = Number(entry.y);
     const rotation = Number(entry.r ?? 0);
+    const width = Number(entry.w);
     if (!Number.isFinite(scale) || !Number.isFinite(x) || !Number.isFinite(y) || scale <= 0) {
         return undefined;
     }
@@ -75,6 +84,7 @@ export function getMapView(key: string): MapView | undefined {
         y,
         rotation: Number.isFinite(rotation) ? normalizeAngle(rotation) : 0,
         locked: typeof entry.l === "boolean" ? entry.l : undefined,
+        width: Number.isFinite(width) && width > 0 ? width : undefined,
     };
 }
 
@@ -86,9 +96,32 @@ export function setMapView(key: string, view: MapView): void {
         y: view.y,
         r: normalizeAngle(view.rotation),
         l: view.locked,
+        w: view.width !== undefined && Number.isFinite(view.width) && view.width > 0 ? view.width : undefined,
         ts: new Date().getTime(),
     };
     write(storage);
+}
+
+/**
+ * Scales a view's pixel offsets from the content width it was taken at to `width`.
+ *
+ * Every dimension of the map content follows the card width — the image is `width: 100%` and its
+ * height follows the image's aspect ratio — so one factor keeps the same map point in the middle
+ * of the viewport, at any zoom and rotation. Without a recorded width, or without a usable current
+ * one, the view is returned unchanged.
+ *
+ * This relies on the viewport (`#map-zoomer`) scaling with the content too, which holds while it
+ * is a block sized by the image in every layout, including a fixed-height sections cell (the card
+ * scrolls; the map keeps its own height). A viewport with its own fixed size would need the general
+ * form per axis, `x' = V'/2 - (V/2 - x) * k` with V the viewport size, and therefore the stored
+ * viewport size; scaling alone would drift that axis by `V/2 * (1 - k)`.
+ */
+export function fitMapViewToWidth(view: MapView, width: number): MapView {
+    if (!view.width || !Number.isFinite(width) || width <= 0 || view.width === width) {
+        return view;
+    }
+    const factor = width / view.width;
+    return { ...view, x: view.x * factor, y: view.y * factor, width };
 }
 
 /** Keeps an angle in [0, 360) so stored values stay comparable however many turns were made. */
