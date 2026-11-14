@@ -78,7 +78,7 @@ export function startActiveRoomRun(
         seenActive: false,
         mode: getRoomRunModeKey(mode),
         reportedState: card._hass?.states[entity]?.state,
-        reportedAt: card._hass?.states[entity]?.last_updated,
+        reportedChangedAt: card._hass?.states[entity]?.last_changed,
     };
     saveActiveRoomRun(entity, run);
     advanceCardActiveRun(card);
@@ -114,7 +114,7 @@ export function getIconHass(card: XiaomiVacuumMapCard, preset: CardPresetConfig)
     const run = card.activeRoomRun;
     const stateObj = card.hass?.states[preset.entity];
     if (!run || run.entity !== preset.entity || !stateObj) return card.hass;
-    const expected = expectedVacuumState(run, stateObj.state);
+    const expected = expectedVacuumState(run, stateObj.state, stateObj.last_changed);
     if (expected === undefined || expected === stateObj.state) return card.hass;
     return { ...card.hass, states: { ...card.hass.states, [preset.entity]: { ...stateObj, state: expected } } };
 }
@@ -142,7 +142,7 @@ export function advanceCardActiveRun(card: XiaomiVacuumMapCard, advance = true):
     const previous = card.activeRoomRun;
     const stored = loadActiveRoomRun(entity);
     const stateObj = card._hass?.states[entity];
-    const next = advance ? advanceActiveRoomRun(stored, stateObj?.state, Date.now(), stateObj?.last_updated) : stored;
+    const next = advance ? advanceActiveRoomRun(stored, stateObj?.state, Date.now(), stateObj?.last_changed) : stored;
     if (next !== stored) saveActiveRoomRun(entity, next);
     card.activeRoomRun = next;
     clearTimer(card);

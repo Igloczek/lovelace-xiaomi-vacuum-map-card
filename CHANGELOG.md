@@ -99,15 +99,18 @@
 - The run is on the map from the moment **Start** sends the call, not only once the integration
   answers; if the call fails the run is removed and the selection comes back in order.
 - `unavailable` or `unknown` from a polling integration no longer ends a run mid-clean.
-- A `cleaning` or `returning` state that was already shown when **Start** was pressed no longer
-  counts as the start, so a lagging `docked` does not end the run before the vacuum begins.
+- Only `cleaning` reported after **Start** counts as the start of a run. The previous job's
+  `cleaning` or `returning`, still shown by a lagging integration, or an update that only changes
+  an attribute, no longer locks the rooms or lets a lagging `docked` end the run before the vacuum
+  begins.
 - A run that never starts ends after three minutes even when Home Assistant sends no further
   update, also after a reload.
 - Several cards or tabs showing the same vacuum show the same run, and a card no longer deletes a
   run another card started.
 - A run is shown only in the ROOM mode it was started from.
 - While a start is pending, the icons treat the vacuum as cleaning, so the play icon does not offer
-  a full clean during the ~30 s a polling integration needs to report the start.
+  a full clean during the ~30 s a polling integration needs to report the start; a new `docked` or
+  `error` report shows the real state again at once.
 
 ## 1.0.7
 

@@ -61,15 +61,25 @@ describe("advanceActiveRoomRun with lagging and uninformative states", () => {
         // Start pressed while Home Assistant still shows the last job `returning`: that report is
         // older than the command. Taking it as the start ended the run on the next (stale) `docked`
         // before the vacuum had even begun the new rooms.
-        const pending = run({ reportedState: "returning", reportedAt: BEFORE_START });
+        const pending = run({ reportedState: "returning", reportedChangedAt: BEFORE_START });
         expect(advanceActiveRoomRun(pending, "returning", 2_000, BEFORE_START)).toBe(pending);
+        expect(advanceActiveRoomRun(pending, "docked", 20_000, "2026-11-01T10:00:10.000Z")).toBe(pending);
+        expect(advanceActiveRoomRun(pending, "cleaning", 40_000, AFTER_START)).toMatchObject({ seenActive: true });
+    });
+
+    it("does not take a stale return after a stale cleaning as the start", () => {
+        // Start pressed while Home Assistant still shows the last job `cleaning`; the lagging
+        // integration then reports that job's trip home and dock before the new rooms. Only a
+        // `cleaning` reported after Start can be this run's start.
+        const pending = run({ reportedState: "cleaning", reportedChangedAt: BEFORE_START });
+        expect(advanceActiveRoomRun(pending, "returning", 10_000, "2026-11-01T10:00:05.000Z")).toBe(pending);
         expect(advanceActiveRoomRun(pending, "docked", 20_000, "2026-11-01T10:00:10.000Z")).toBe(pending);
         expect(advanceActiveRoomRun(pending, "cleaning", 40_000, AFTER_START)).toMatchObject({ seenActive: true });
     });
 
     it("accepts a working state that never changed once the start grace has passed", () => {
         // The vacuum was already cleaning and took the new rooms without any new report.
-        const pending = run({ reportedState: "cleaning", reportedAt: BEFORE_START });
+        const pending = run({ reportedState: "cleaning", reportedChangedAt: BEFORE_START });
         const late = 1_000 + ACTIVE_ROOM_RUN_START_GRACE_MS + 1;
         expect(advanceActiveRoomRun(pending, "cleaning", late, BEFORE_START)).toMatchObject({ seenActive: true });
         expect(advanceActiveRoomRun(pending, "docked", late, BEFORE_START)).toBeUndefined();
@@ -100,6 +110,11 @@ describe("expectedVacuumState", () => {
     it("reads a pending run's vacuum as cleaning, and the real state otherwise", () => {
         expect(expectedVacuumState(undefined, "docked")).toBe("docked");
         expect(expectedVacuumState(run(), "docked")).toBe("cleaning");
+        // Only while the state shown at Start is still shown: a new non-working state is real.
+        const pending = run({ reportedState: "docked", reportedChangedAt: BEFORE_START });
+        expect(expectedVacuumState(pending, "docked", BEFORE_START)).toBe("cleaning");
+        expect(expectedVacuumState(pending, "docked", AFTER_START)).toBe("docked");
+        expect(expectedVacuumState(pending, "error", AFTER_START)).toBe("error");
         expect(expectedVacuumState(run(), "returning")).toBe("returning");
         expect(expectedVacuumState(run({ seenActive: true }), "paused")).toBe("paused");
     });
@@ -223,6 +238,7 @@ describe("the run on the map after Start", () => {
         useHarnessClock();
         const hass = withState(fixtureHass(loadSyntheticFixture()), VACUUM, {
             state: "returning",
+            last_changed: BEFORE_START,
             last_updated: BEFORE_START,
         }).hass;
         const card = await mount({}, hass);
@@ -230,15 +246,42 @@ describe("the run on the map after Start", () => {
         // Another entity changes: Home Assistant pushes a new hass with the vacuum's old report.
         await card.updateHass(withState(card.hass, "sensor.other", { state: "1" }).hass);
         await settle(card.element);
-        await card.updateHass(withState(card.hass, VACUUM, { state: "docked", last_updated: "2026-11-01T10:00:10.000Z" }).hass);
+        await card.updateHass(withState(card.hass, VACUUM, { state: "docked", last_changed: "2026-11-01T10:00:10.000Z", last_updated: "2026-11-01T10:00:10.000Z" }).hass);
         await settle(card.element);
         expect(badges(card)).toEqual({ "2": "1", "0": "2" });
 
-        await card.updateHass(withState(card.hass, VACUUM, { state: "cleaning", last_updated: AFTER_START }).hass);
+        await card.updateHass(withState(card.hass, VACUUM, { state: "cleaning", last_changed: AFTER_START, last_updated: AFTER_START }).hass);
         await settle(card.element);
         expect(badges(card)).toEqual({ "2": "1", "0": "2" });
         await clickRoom(card, "1");
         expect(selectedRoomIds(card)).toEqual([]);
+    });
+
+    it("does not take an attribute-only update of the state shown at Start as the start", async () => {
+        // Polling integrations rewrite the state object whenever an attribute (battery, area)
+        // changes. That bumps `last_updated` but not `last_changed`: the vacuum is still on the
+        // trip home it was on before Start, and a Viomi ignores the room command meanwhile.
+        useHarnessClock();
+        const hass = withState(fixtureHass(loadSyntheticFixture()), VACUUM, {
+            state: "returning",
+            last_changed: BEFORE_START,
+            last_updated: BEFORE_START,
+        }).hass;
+        const card = await mount({}, hass);
+        await startRun(card);
+        await card.updateHass(
+            withState(card.hass, VACUUM, {
+                state: "returning",
+                last_changed: BEFORE_START,
+                last_updated: "2026-11-01T10:00:05.000Z",
+                attributes: { ...card.hass.states[VACUUM].attributes, battery_level: 41 },
+            }).hass,
+        );
+        await settle(card.element);
+        expect(badges(card)).toEqual({ "2": "1", "0": "2" });
+        // Not started, so not locked: a tap starts a new selection.
+        await clickRoom(card, "1");
+        expect(selectedRoomIds(card)).toEqual(["1"]);
     });
 
     it("shows the run while the service call is still in flight", async () => {
@@ -369,5 +412,39 @@ describe("the run on the map after Start", () => {
         // The vacuum ignored the command: once the start grace has passed the control is back.
         await settle(card.element, ACTIVE_ROOM_RUN_START_GRACE_MS + 2_000);
         expect(playIcons()).toBe(1);
+    });
+
+    it("shows the start control again as soon as the vacuum reports a new non-working state", async () => {
+        // The vacuum could not take the command and reports `error`. That report is real and new,
+        // so the icons must not keep pretending the vacuum is cleaning for three minutes.
+        useHarnessClock();
+        const hass = withState(fixtureHass(loadSyntheticFixture()), VACUUM, {
+            state: "docked",
+            last_changed: BEFORE_START,
+            last_updated: BEFORE_START,
+        }).hass;
+        const card = await mount(
+            {
+                icons: [
+                    {
+                        icon: "mdi:play-box",
+                        icon_id: "test_start",
+                        conditions: [{ entity: VACUUM, value_not: "cleaning" }],
+                        tap_action: { action: "call-service", service: "vacuum.start" },
+                    },
+                ],
+            },
+            hass,
+        );
+        const playIcons = (): number => card.shadowRoot.querySelectorAll('ha-icon[icon="mdi:play-box"]').length;
+        await startRun(card);
+        expect(playIcons()).toBe(0);
+        await card.updateHass(
+            withState(card.hass, VACUUM, { state: "error", last_changed: AFTER_START, last_updated: AFTER_START }).hass,
+        );
+        await settle(card.element);
+        expect(playIcons()).toBe(1);
+        // The run itself stays pending (the start may still be on its way) and unlocked.
+        expect(badges(card)).toEqual({ "2": "1", "0": "2" });
     });
 });

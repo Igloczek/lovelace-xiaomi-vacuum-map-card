@@ -11,6 +11,9 @@ real setup showed and that the card has to survive:
 - After a job the robot returns and docks.
 - `fail_next` makes the next command raise, like a device that does not answer.
 - `available: false` makes the entity unavailable, like a polling integration losing the device.
+- Every `poll_seconds` it rewrites the state object with a new `polled` attribute and the same
+  activity, like a polling integration whose battery or area attribute changed: `last_updated`
+  moves, `last_changed` does not.
 """
 
 from __future__ import annotations
@@ -22,7 +25,9 @@ from homeassistant.components.vacuum import StateVacuumEntity, VacuumActivity, V
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_call_later
+from datetime import timedelta
+
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import FIXTURE_ROOMS
@@ -73,12 +78,40 @@ class FakeVacuum(StateVacuumEntity):
         self._reported: dict[str, Any] = self._snapshot()
         self._available = True
         self._sequence = 0
+        self._polled = 0
+        self.poll_seconds = 2.0
+        self._poll_unsub: Any = None
+
+    async def async_added_to_hass(self) -> None:
+        self._start_polling()
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._poll_unsub is not None:
+            self._poll_unsub()
+
+    def _start_polling(self) -> None:
+        if self._poll_unsub is not None:
+            self._poll_unsub()
+            self._poll_unsub = None
+        if self.poll_seconds > 0:
+            self._poll_unsub = async_track_time_interval(
+                self.hass, self._poll, timedelta(seconds=self.poll_seconds)
+            )
+
+    @callback
+    def _poll(self, _now: Any = None) -> None:
+        """An attribute-only update: same reported activity, new attribute value."""
+        self._polled += 1
+        self.async_write_ha_state()
 
     # Configuration from the `map_fixture.vacuum_configure` service.
     def configure(self, data: dict[str, Any]) -> None:
         for key in ("lag", "room_seconds", "return_seconds"):
             if key in data:
                 setattr(self, key, float(data[key]))
+        if "poll_seconds" in data:
+            self.poll_seconds = float(data["poll_seconds"])
+            self._start_polling()
         if "fail_next" in data:
             self.fail_next = bool(data["fail_next"])
         if "available" in data:
@@ -105,7 +138,9 @@ class FakeVacuum(StateVacuumEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {key: value for key, value in self._reported.items() if key != "activity"}
+        attributes = {key: value for key, value in self._reported.items() if key != "activity"}
+        attributes["polled"] = self._polled
+        return attributes
 
     def _snapshot(self) -> dict[str, Any]:
         return {

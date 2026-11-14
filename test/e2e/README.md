@@ -72,8 +72,9 @@ The same integration provides `vacuum.fake_vacuum` (`map_fixture/vacuum.py`), a 
 the way real ones misbehave: it reports each change `lag` seconds late (a polling integration such
 as xiaomi_miot lags ~30 s), cleans a multi-room `app_segment_clean` in its own order (recorded in
 `cleaned_rooms`), ignores a command while returning, docks after a job, and can fail the next call
-or go unavailable. `map_fixture.vacuum_configure` sets `lag`, `room_seconds`, `return_seconds`,
-`fail_next` and `available`; `map_fixture.vacuum_reset` puts it into an activity at once.
+or go unavailable. Every `poll_seconds` (2 s) it rewrites its state with a new `polled` attribute
+and the same activity, as a polling integration does. `map_fixture.vacuum_configure` sets `lag`,
+`room_seconds`, `return_seconds`, `poll_seconds`, `fail_next` and `available`; `map_fixture.vacuum_reset` puts it into an activity at once.
 
 `connect-github.cjs` writes the token into the ignored Home Assistant state file
 (`test/e2e/ha/config/.storage`), because the Marketplace device flow cannot run headless. Nothing

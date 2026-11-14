@@ -18,7 +18,7 @@ async function configure(data: Record<string, unknown>): Promise<void> {
 
 async function resetVacuum(activity = "docked"): Promise<void> {
     await serviceCall("map_fixture", "vacuum_reset", { activity });
-    await configure({ lag: 0, room_seconds: 4, return_seconds: 3, fail_next: false, available: true });
+    await configure({ lag: 0, room_seconds: 4, return_seconds: 3, fail_next: false, available: true, poll_seconds: 2 });
 }
 
 async function openRunCard(page: Page): Promise<CardHandle> {
@@ -171,23 +171,22 @@ test.describe("the run after Start, with a misbehaving vacuum", () => {
 
     test("a room command the vacuum ignores while heading home does not lock the rooms", async ({ loggedIn: page }) => {
         await resetVacuum();
-        await configure({ return_seconds: 15 });
+        await configure({ return_seconds: 25 });
         const target = await openRunCard(page);
         await serviceCall("vacuum", "return_to_base", { entity_id: VACUUM });
         await expect.poll(() => shownState(page)).toBe("returning");
 
         await tapRoom(page, target, "1");
         await pressStart(page, target);
-        // A real Home Assistant pushes other entities' updates all the time; this quiet instance
-        // needs one, so the card re-evaluates the run against the still-shown `returning`.
-        await serviceCall("map_fixture", "bump");
-        await page.waitForTimeout(500);
+        // The fake vacuum rewrites its state every 2 s with a new attribute and the same
+        // `returning`, as a polling integration does; let a few of those arrive.
+        await page.waitForTimeout(5_000);
         // `returning` was shown before Start: it is not the start of this run.
         expect(await running(target)).toEqual(["1"]);
         await tapRoom(page, target, "2");
         expect(await selected(target)).toEqual(["2"]);
 
-        await expect.poll(() => shownState(page), { timeout: 30_000 }).toBe("docked");
+        await expect.poll(() => shownState(page), { timeout: 40_000 }).toBe("docked");
         expect(await attribute(page, "job_rooms")).toEqual([]);
     });
 

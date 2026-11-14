@@ -34,6 +34,9 @@ vacuum_configure:
     available:
       description: Report the entity available or unavailable.
       example: false
+    poll_seconds:
+      description: Seconds between attribute-only state updates (0 turns them off).
+      example: 2
 vacuum_reset:
   name: Reset fake vacuum
   description: Puts the fake vacuum into an activity at once, without lag.

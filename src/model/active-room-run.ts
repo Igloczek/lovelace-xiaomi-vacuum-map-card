@@ -24,13 +24,14 @@ export interface ActiveRoomRun {
      */
     mode?: string;
     /**
-     * The vacuum's state and its `last_updated` when the call was sent. That report predates the
-     * command, so its `cleaning` or `returning` cannot be the start of this run: a polling
-     * integration may still show the previous job. Compared as values, never against the browser
-     * clock, so a clock difference between browser and server does not matter.
+     * The vacuum's state and its `last_changed` when the call was sent. That report predates the
+     * command: a polling integration may still show the previous job. `last_changed` moves only
+     * when the state itself changes; `last_updated` also moves on every attribute change (battery,
+     * cleaned area), which says nothing about a new job. Compared as values, never against the
+     * browser clock, so a clock difference between browser and server does not matter.
      */
     reportedState?: string;
-    reportedAt?: string;
+    reportedChangedAt?: string;
 }
 
 /** Vacuum states that mean a run is still in progress, including the trip back between rooms. */
@@ -72,29 +73,34 @@ function isWorking(state: string | undefined): boolean {
  * never started within the start grace period. A run ends the moment the vacuum is done, so the
  * rooms are never locked while it sits on the dock.
  *
- * `lastUpdated` is the state object's `last_updated`. While the run is pending, a working state
- * counts as its start only when it was reported after the call (see `ActiveRoomRun.reportedAt`).
- * If the vacuum was already working and nothing changes, the start grace accepts that working
- * state rather than drop a run that is probably in progress. `unavailable` and `unknown` neither
- * start nor end a run.
+ * `lastChanged` is the state object's `last_changed`. While the run is pending, only `cleaning`
+ * reported after the call counts as its start: a different state than the one shown at Start, or
+ * the same state with a new `last_changed`. `returning` and `paused` are never the start of a room
+ * job; after Start they are the previous job's trip home, still on its way through a lagging
+ * integration. If the vacuum was already cleaning and nothing changes, the start grace accepts
+ * that working state rather than drop a run that is probably in progress. `unavailable` and
+ * `unknown` neither start nor end a run.
  */
 export function advanceActiveRoomRun(
     run: ActiveRoomRun | undefined,
     vacuumState: string | undefined,
     now: number,
-    lastUpdated?: string,
+    lastChanged?: string,
 ): ActiveRoomRun | undefined {
     if (!run) return undefined;
     if (now - run.startedAt > ACTIVE_ROOM_RUN_MAX_AGE_MS) return undefined;
     const working = isWorking(vacuumState);
     if (run.seenActive) return working || !isInformative(vacuumState) ? run : undefined;
-    const reportedAfterStart =
-        run.reportedState === undefined ||
-        vacuumState !== run.reportedState ||
-        (run.reportedAt !== undefined && lastUpdated !== undefined && lastUpdated !== run.reportedAt);
-    if (working && reportedAfterStart) return { ...run, seenActive: true };
+    if (vacuumState === "cleaning" && isNewReport(run, vacuumState, lastChanged)) return { ...run, seenActive: true };
     if (now - run.startedAt > ACTIVE_ROOM_RUN_START_GRACE_MS) return working ? { ...run, seenActive: true } : undefined;
     return run;
+}
+
+/** True when the state is not the report that was shown when the call was sent. */
+function isNewReport(run: ActiveRoomRun, vacuumState: string | undefined, lastChanged: string | undefined): boolean {
+    if (run.reportedState === undefined) return true;
+    if (vacuumState !== run.reportedState) return true;
+    return run.reportedChangedAt !== undefined && lastChanged !== undefined && lastChanged !== run.reportedChangedAt;
 }
 
 /**
@@ -122,8 +128,15 @@ export function isActiveRoomRunLocked(run: ActiveRoomRun | undefined, vacuumStat
  * integration reports the start tens of seconds late, so controls that depend on the state (the
  * play icon) would otherwise offer a second, different command for a job that is already starting.
  */
-export function expectedVacuumState(run: ActiveRoomRun | undefined, vacuumState: string | undefined): string | undefined {
+export function expectedVacuumState(
+    run: ActiveRoomRun | undefined,
+    vacuumState: string | undefined,
+    lastChanged?: string,
+): string | undefined {
     if (!run || run.seenActive || isWorking(vacuumState)) return vacuumState;
+    // A new non-working report (docked, error, unavailable) after Start is real: the command was
+    // ignored or failed, so the icons show it instead of waiting out the start grace.
+    if (run.reportedState !== undefined && isNewReport(run, vacuumState, lastChanged)) return vacuumState;
     return "cleaning";
 }
 
@@ -137,11 +150,22 @@ export function roomRunModeKey(parts: unknown): string {
 
 type ActiveRoomRunStorage = Record<string, ActiveRoomRun>;
 
+/**
+ * The last raw storage string and what it parsed to. Every card reads the stored run on every
+ * Home Assistant update, so the JSON is parsed only when the string actually changed. The cached
+ * object is never mutated; `saveActiveRoomRun` writes a copy.
+ */
+let cachedRaw: string | null | undefined;
+let cachedStorage: ActiveRoomRunStorage = {};
+
 function read(): ActiveRoomRunStorage {
     try {
         const raw = window.localStorage.getItem(ACTIVE_ROOM_RUN_STORE_KEY);
+        if (raw === cachedRaw) return cachedStorage;
         const parsed = raw ? JSON.parse(raw) : {};
-        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        cachedStorage = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        cachedRaw = raw;
+        return cachedStorage;
     } catch {
         return {};
     }
@@ -158,7 +182,7 @@ function isActiveRoomRun(value: unknown): value is ActiveRoomRun {
         typeof run.seenActive === "boolean" &&
         (run.mode === undefined || typeof run.mode === "string") &&
         (run.reportedState === undefined || typeof run.reportedState === "string") &&
-        (run.reportedAt === undefined || typeof run.reportedAt === "string")
+        (run.reportedChangedAt === undefined || typeof run.reportedChangedAt === "string")
     );
 }
 
@@ -177,7 +201,7 @@ export const ACTIVE_ROOM_RUN_CHANGED_EVENT = "xiaomi-vacuum-map-card-active-room
 /** Stores or, with `undefined`, removes the run for a vacuum. Storage failures are ignored. */
 export function saveActiveRoomRun(entity: string, run: ActiveRoomRun | undefined): void {
     try {
-        const storage = read();
+        const storage = { ...read() };
         if (JSON.stringify(storage[entity] ?? null) === JSON.stringify(run ?? null)) return;
         if (run) storage[entity] = run;
         else delete storage[entity];

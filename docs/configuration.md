@@ -271,11 +271,14 @@ state is `unavailable` or `unknown`, the run stays on the map but a tap on a roo
 selection instead. The run ends as soon as the vacuum is done (docked, idle, error), after three
 minutes if it never starts, and in any case after 12 hours.
 
-A state that was already shown when you pressed **Start** does not count as the start: a polling
-integration can still show the previous job `returning` and only then report the new rooms. If
-the vacuum was already cleaning and nothing changes, the run counts as started after three
-minutes. While the start is pending, the card's icons read the vacuum as `cleaning`, so the play
-icon does not offer a full clean for a job that is already starting.
+Only `cleaning` reported after **Start** counts as the start: a different state than the one
+shown when you pressed it, or the same state changed again (a new `last_changed`). A polling
+integration can still show the previous job, then report its trip home and dock, before it reports
+the new rooms; a `returning` is never taken as the start, and neither is an update that only
+changes attributes such as the battery level. If the vacuum was already cleaning and nothing
+changes, the run counts as started after three minutes. While the start is pending, the card's
+icons read the vacuum as `cleaning`, so the play icon does not offer a full clean for a job that is
+already starting, until the vacuum reports a new state such as `docked` or `error`.
 
 The run is remembered per vacuum in the browser and shared by every card and tab of that browser,
 so a reload keeps it. It is not shared between browsers or devices, and the card cannot tell that
