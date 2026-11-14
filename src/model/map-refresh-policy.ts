@@ -139,10 +139,14 @@ function unchanged(previous: MapRefreshState): MapRefreshDecision {
  * decision notice the camera change or the elapsed interval afterwards.
  *
  * A camera change for the same camera waits while the current snapshot is still loading, for at
- * most one interval. Replacing an image's src aborts its download, so a camera that changes faster
- * than its snapshot downloads (a slow mobile link, a chatty camera) never finished a single load
- * and the map never drew. The caller re-decides when the load ends, which fetches the newest state
- * once instead of one request per held change.
+ * most one interval. Replacing an image's src aborts its download, so a camera that changed faster
+ * than its snapshot downloaded (a slow mobile link, a chatty camera) aborted every snapshot and the
+ * map never drew. The caller re-decides when the load ends, which fetches the newest state once
+ * instead of one request per held change.
+ *
+ * The bound is deliberate: a download slower than one interval is still replaced when the interval
+ * ends, exactly as before this rule, so a stalled request cannot freeze the map. Such a link only
+ * draws once a snapshot happens to finish within an interval.
  */
 export function decideMapRefresh(input: MapRefreshInput): MapRefreshDecision {
     const { previous, hidden } = input;

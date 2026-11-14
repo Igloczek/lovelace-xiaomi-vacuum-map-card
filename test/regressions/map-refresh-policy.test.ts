@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DISCONNECTED_IMAGE, DISCONNECTION_TIME } from "../../src/const";
 import { MAP_REFRESH_INTERVAL_MS } from "../../src/model/map-refresh-policy";
 import { setMapView } from "../../src/model/map-view-store";
+import { RoomColorDetector } from "../../src/model/room-color-detector";
 import type { XiaomiVacuumMapCardConfig } from "../../src/types/types";
 import type { CardHandle, FixtureBundle, HarnessClock, MockHass } from "../harness";
 import {
@@ -341,6 +342,36 @@ describe("map refresh policy in the card", () => {
         await clock.advance(1000);
         tracker.check(elapsed + 1000);
         expect(tracker.count).toBe(2);
+    });
+
+    it("detects rooms on the snapshot that is shown, not on an older one the camera has moved past", async () => {
+        const { card, clock, cameraId } = await mountRefreshingCard();
+        await card.fireMapLoad();
+        const image = (): HTMLImageElement => card.shadowRoot.getElementById("map-image-source") as HTMLImageElement;
+        const detect = vi.spyOn(RoomColorDetector, "detect");
+
+        // Camera state K1: snapshot S1 starts downloading.
+        await clock.advance(500);
+        await applyHass(card, withState(card.hass, cameraId, { last_updated: "2026-11-01T10:00:01.000Z" }).hass);
+        const s1 = image().getAttribute("src");
+        // Camera state K2 while S1 downloads: the URL is held, so S1 still shows K1's map.
+        await clock.advance(1000);
+        await applyHass(card, withState(card.hass, cameraId, { last_updated: "2026-11-01T10:00:02.000Z" }).hass);
+        expect(image().getAttribute("src")).toBe(s1);
+        detect.mockClear();
+
+        // S1 arrives, then the card fetches K2's snapshot S2 and that arrives too.
+        await card.fireMapLoad();
+        await clock.advance(10);
+        const s2 = image().getAttribute("src");
+        expect(s2).not.toBe(s1);
+        const detectionsOnS1 = detect.mock.calls.length;
+        await card.fireMapLoad();
+
+        // K2's room metadata must be paired with K2's pixels: detection runs for S2. Running it on
+        // S1 and recording K2 as done would keep the old outlines and taps until the next change.
+        expect(detectionsOnS1).toBe(0);
+        expect(detect).toHaveBeenCalledTimes(1);
     });
 
     it("does not wait longer than the interval for a snapshot that never loads", async () => {

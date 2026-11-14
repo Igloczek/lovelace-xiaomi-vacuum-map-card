@@ -109,6 +109,12 @@ export function setMapView(key: string, view: MapView): void {
  * height follows the image's aspect ratio — so one factor keeps the same map point in the middle
  * of the viewport, at any zoom and rotation. Without a recorded width, or without a usable current
  * one, the view is returned unchanged.
+ *
+ * This relies on the viewport (`#map-zoomer`) scaling with the content too, which holds while it
+ * is a block sized by the image in every layout, including a fixed-height sections cell (the card
+ * scrolls; the map keeps its own height). A viewport with its own fixed size would need the general
+ * form per axis, `x' = V'/2 - (V/2 - x) * k` with V the viewport size, and therefore the stored
+ * viewport size; scaling alone would drift that axis by `V/2 * (1 - k)`.
  */
 export function fitMapViewToWidth(view: MapView, width: number): MapView {
     if (!view.width || !Number.isFinite(width) || width <= 0 || view.width === width) {

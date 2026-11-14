@@ -130,6 +130,11 @@ export function detectRoomColors(card: XiaomiVacuumMapCard): void {
         entityPicture: entity.attributes.entity_picture as string | undefined,
     });
     if (detectionKey === card.lastRoomColorDetectionKey) return;
+    // The canvas shows the snapshot the refresh policy last fetched, which lags the live entity
+    // while a camera change is held for a loading snapshot or frozen in a hidden tab. Pairing the
+    // live `rooms` with older pixels would record this state as detected and skip the real one;
+    // the load of the newest snapshot runs detection instead.
+    if (card.mapRefreshState && card.mapRefreshState.cameraKey !== detectionKey) return;
     card.lastRoomColorDetectionKey = detectionKey;
 
     const previousDetection = card.roomColorDetection;
