@@ -215,3 +215,27 @@ describe("normalizeJinjaQuotes on the shipped templates", () => {
         expect(normalizeJinjaQuotes(template)).toBe(template);
     });
 });
+
+describe("exported mode config keeps the legacy schemas", () => {
+    it("round-trips a Deebot mode through toMapModeConfig and still picks the payload by version", async () => {
+        const original = new MapMode("DeebotUniverse/Deebot-4-Home-Assistant", { template: "vacuum_clean_segment" } as MapModeConfig, "en");
+        const exported = original.toMapModeConfig();
+        expect(exported.legacy_service_call_schemas?.[0]?.before_ha_version).toBe("2026.3");
+
+        // The exported config has a service_call_schema of its own, like a pasted-back YAML config.
+        const reimported = new MapMode("DeebotUniverse/Deebot-4-Home-Assistant", JSON.parse(JSON.stringify(exported)), "en");
+        const at = (version: string) => ({ config: { version } }) as unknown as HomeAssistantFixed;
+        const selection = reimported.getRoomSelection(["16", "17"], 1);
+        expect((await reimported.getServiceCall(at("2026.2.0"), ENTITY, selection, 1, {})).serviceData).toMatchObject({
+            params: { rooms: "16,17" },
+        });
+        expect((await reimported.getServiceCall(at("2026.3.0"), ENTITY, selection, 1, {})).serviceData).toMatchObject({
+            params: { rooms: [16, 17] },
+        });
+    });
+
+    it("exports no legacy schemas for a mode without them", () => {
+        const m = new MapMode("Xiaomi Miio", { template: "vacuum_clean_segment" } as MapModeConfig, "en");
+        expect(m.toMapModeConfig().legacy_service_call_schemas).toBeUndefined();
+    });
+});

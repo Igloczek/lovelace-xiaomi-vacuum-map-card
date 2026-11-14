@@ -155,9 +155,10 @@ export interface MapModeConfig {
     readonly max_repeats?: number;
     readonly service_call_schema?: ServiceCallSchemaConfig;
     /**
-     * Platform templates only: the schema to use on an older Home Assistant, for an integration whose
-     * service changed its payload format. The first entry whose `before_ha_version` is newer than the
-     * running Home Assistant wins; a user's own `service_call_schema` always wins.
+     * Set by platform templates and kept in an exported config: the schema to use on an older Home
+     * Assistant, for an integration whose service changed its payload format. The first entry whose
+     * `before_ha_version` is newer than the running Home Assistant wins. A user's own
+     * `service_call_schema` replaces a template's legacy schemas; it only has legacy schemas of its own.
      */
     readonly legacy_service_call_schemas?: LegacyServiceCallSchemaConfig[];
     readonly predefined_selections?: PredefinedSelectionConfig[];

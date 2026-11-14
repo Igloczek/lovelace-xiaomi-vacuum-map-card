@@ -3,6 +3,7 @@ import { RepeatsType } from "./repeats-type";
 import { ServiceCallSchema } from "./service-call-schema";
 import {
     Language,
+    LegacyServiceCallSchemaConfig,
     MapModeConfig,
     PredefinedSelectionConfig,
     ServiceCallSchemaConfig,
@@ -54,6 +55,8 @@ export class MapMode {
         this.repeatsType = config.repeats_type ? RepeatsType[config.repeats_type] : RepeatsType.NONE;
         this.maxRepeats = config.max_repeats ?? 1;
         this.serviceCallSchema = new ServiceCallSchema(config.service_call_schema ?? ({} as ServiceCallSchemaConfig));
+        // A config's own legacy schemas belong to its own service_call_schema (an exported config).
+        this.legacyServiceCallSchemas = MapMode._legacySchemas(config.legacy_service_call_schemas);
         this.predefinedSelections = config.predefined_selections ?? [];
         this.variables = config.variables ?? {};
         this._applyTemplateIfPossible(vacuumPlatform, config, language);
@@ -151,6 +154,14 @@ export class MapMode {
             repeats_type: RepeatsType[this.repeatsType],
             max_repeats: this.maxRepeats,
             service_call_schema: JSON.parse(JSON.stringify(this.serviceCallSchema.config)),
+            // Without these, an exported config pasted back would send the current payload to an
+            // older Home Assistant (Deebot before 2026.3).
+            legacy_service_call_schemas: this.legacyServiceCallSchemas.length
+                ? this.legacyServiceCallSchemas.map(legacy => ({
+                      before_ha_version: legacy.beforeHaVersion,
+                      service_call_schema: JSON.parse(JSON.stringify(legacy.schema.config)),
+                  }))
+                : undefined,
             predefined_selections: this.predefinedSelections,
             variables: Object.fromEntries(
                 Object.entries(this.variables ?? {}).map(([k, v]) => [k.substr(2, k.length - 4), v]),
@@ -179,13 +190,19 @@ export class MapMode {
         if (!config.max_repeats && templateValue.max_repeats) this.maxRepeats = templateValue.max_repeats;
         if (!config.service_call_schema && templateValue.service_call_schema) {
             this.serviceCallSchema = new ServiceCallSchema(templateValue.service_call_schema);
-            this.legacyServiceCallSchemas = (templateValue.legacy_service_call_schemas ?? [])
-                .map(legacy => ({
-                    beforeHaVersion: legacy.before_ha_version,
-                    schema: new ServiceCallSchema(legacy.service_call_schema),
-                }))
-                .sort((a, b) => (isHaVersionBefore(a.beforeHaVersion, b.beforeHaVersion) ? -1 : 1));
+            this.legacyServiceCallSchemas = MapMode._legacySchemas(templateValue.legacy_service_call_schemas);
         }
+    }
+
+    private static _legacySchemas(
+        legacy: LegacyServiceCallSchemaConfig[] | undefined,
+    ): Array<{ beforeHaVersion: string; schema: ServiceCallSchema }> {
+        return (legacy ?? [])
+            .map(entry => ({
+                beforeHaVersion: entry.before_ha_version,
+                schema: new ServiceCallSchema(entry.service_call_schema),
+            }))
+            .sort((a, b) => (isHaVersionBefore(a.beforeHaVersion, b.beforeHaVersion) ? -1 : 1));
     }
 
     /** True for the selection types whose selection is one point, `[x, y]` or `[x, y, repeats]`. */

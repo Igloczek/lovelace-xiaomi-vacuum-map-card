@@ -68,9 +68,6 @@ export async function runSelection(card: XiaomiVacuumMapCard, debug: boolean): P
         setCurrentMode(card, card.selectedMode);
     }
     selectionChanged(card);
-    // Re-selecting the current mode changes no reactive property, so the cleared selection and the
-    // started run would only be drawn by an update that happened to be pending.
-    card.requestUpdate();
 }
 
 /**
