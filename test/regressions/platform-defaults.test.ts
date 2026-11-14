@@ -328,7 +328,8 @@ describe("a camera that briefly loses its rooms", () => {
         await card.updateHass(unavailable);
         expect(card.element.selectedMode).toBe(2);
         expect(card.element.modes[2]).toBe(roomMode);
-        expect(selected()).toEqual([1]);
+        // While the metadata is unknown the room is held, not sent (#31, FORK b8).
+        expect(card.element.heldSelection?.selectedKeys.length).toBe(1);
 
         await card.updateHass(withState(unavailable, camera.entity_id, camera).hass);
         expect(card.element.selectedMode).toBe(2);

@@ -7,6 +7,7 @@ import { MapMode } from "../model/map_mode/map-mode";
 import { PlatformGenerator } from "../model/generators/platform-generator";
 import { CoordinatesConverter } from "../model/map_objects/coordinates-converter";
 import { ServiceCallSchema } from "../model/map_mode/service-call-schema";
+import { isCameraRoomsKnown } from "../model/source-availability";
 import type { XiaomiVacuumMapCard } from "../xiaomi-vacuum-map-card";
 import { getConfiguredRotation } from "./map-view";
 import { selectionChanged } from "./selection";
@@ -178,15 +179,19 @@ export function getModes(card: XiaomiVacuumMapCard, config: CardPresetConfig) {
  * rooms after the first cleaning). Configured `map_modes` are never touched.
  *
  * It only ever adds. A camera without `rooms` (unavailable, restarting) says nothing about the
- * rooms - the same rule as stale-room detection, where missing metadata means unknown - so a
- * room mode that is already there stays, and with it the selected mode and the selection. The
+ * rooms - `isCameraRoomsKnown`, the rule stale rooms and the selection follow too - so a room
+ * mode that is already there stays, and with it the selected mode and the selection. The
  * existing mode objects are kept and the new mode is appended, so the current mode is untouched;
  * it is only set up when there was no mode before.
  */
 export function refreshDefaultModes(card: XiaomiVacuumMapCard): void {
     const preset = card.currentPreset;
     if (!preset || !card.config || card.configErrors.length > 0 || preset.map_modes !== undefined) return;
-    if (!cameraHasRooms(card, preset)) return;
+    // The shared source rule (`isCameraRoomsKnown`): an unavailable camera, or one that dropped
+    // rooms it reported before, carries no information, so nothing changes. A known camera
+    // without rooms has nothing to add either; the mode list is only ever extended.
+    const camera = card.hass?.states[preset.map_source?.camera ?? ""];
+    if (!isCameraRoomsKnown(camera, card.roomMetadataSeen) || !cameraHasRooms(card, preset)) return;
     // Runs on every hass update, so compare template names before building any mode.
     const platform = PlatformGenerator.getPlatformName(preset.vacuum_platform);
     const present = new Set(card.modes.map(m => m.config.template));
