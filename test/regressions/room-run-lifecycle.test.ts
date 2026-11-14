@@ -324,7 +324,9 @@ describe("the run on the map after Start", () => {
         expect(loadActiveRoomRun(VACUUM)?.seenActive).toBe(false);
     });
 
-    it("shows the run while the service call is still in flight", async () => {
+    it("keeps the selection on the map while the service call is in flight, then shows the run", async () => {
+        // xiaomi_miot answers a send_command only after the device replies. Until Home Assistant
+        // answers, the selection stays (PR #32); once the call is accepted the run takes its place.
         useHarnessClock();
         const hass = fixtureHass(loadSyntheticFixture());
         let resolveCall!: () => void;
@@ -333,15 +335,33 @@ describe("the run on the map after Start", () => {
         );
         const card = await mount({}, hass);
         await startRun(card);
+        expect(badges(card)).toEqual({ "2": "1", "0": "2" });
+        expect(selectedRoomIds(card)).toEqual(["2", "0"]);
 
-        // xiaomi_miot answers a send_command only after the device replies; the selection is
-        // already cleared, so the run must already be on the map.
+        resolveCall();
+        await settle(card.element);
+        expect(selectedRoomIds(card)).toEqual([]);
         expect(badges(card)).toEqual({ "2": "1", "0": "2" });
         expect(loadActiveRoomRun(VACUUM)?.roomIds).toEqual(["2", "0"]);
+    });
+
+    it("shows the rooms that were sent, even when the user taps a room while the call is in flight", async () => {
+        // A tap during the call changes the on-screen selection, which the accepted call then clears.
+        // The map must still show the run of the rooms actually sent, not an empty map.
+        useHarnessClock();
+        const hass = fixtureHass(loadSyntheticFixture());
+        let resolveCall!: () => void;
+        vi.mocked(hass.callService).mockImplementation(
+            () => new Promise<undefined>(resolve => (resolveCall = () => resolve(undefined))),
+        );
+        const card = await mount({}, hass);
+        await startRun(card);
+        await clickRoom(card, "1");
 
         resolveCall();
         await settle(card.element);
         expect(badges(card)).toEqual({ "2": "1", "0": "2" });
+        expect(loadActiveRoomRun(VACUUM)?.roomIds).toEqual(["2", "0"]);
     });
 
     it("drops the run and gives the selection back, in order, when the service call fails", async () => {

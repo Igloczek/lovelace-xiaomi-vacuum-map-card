@@ -268,8 +268,9 @@ numbers; it does not make a vacuum follow the order. `cleaning_order: false` hid
 platforms that number by default.
 
 After **Start** the rooms stay highlighted exactly as they were selected, with their numbers where they are shown. The
-run is on the map from the moment the call is sent; if the call fails, it is removed and the
-selection comes back so you can retry. While the vacuum works through the run (`cleaning` or
+selection stays on the map until Home Assistant answers the call; once the call is accepted the
+run of the rooms that were sent takes its place, and if the call fails the selection stays so you
+can retry. While the vacuum works through the run (`cleaning` or
 `returning`) the rooms are locked, so the order cannot change mid-run. Before the vacuum reports
 the start, which polling integrations do tens of seconds late, while it is paused, and while its
 state is `unavailable` or `unknown`, the run stays on the map but a tap on a room starts a new

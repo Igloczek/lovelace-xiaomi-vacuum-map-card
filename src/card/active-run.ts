@@ -62,46 +62,36 @@ export function dismissActiveRoomRun(card: XiaomiVacuumMapCard): void {
 }
 
 /**
- * Records a room run when its service call is sent, so it is shown from that moment: the
- * selection is cleared right away and some integrations answer only after the device replied.
+ * The run a room service call is about to start, taken just before the call is sent: its start
+ * time, and the vacuum's state and `last_changed` as shown then. A fast integration can report
+ * `cleaning` before Home Assistant answers the call, so a baseline taken after the answer would
+ * mistake the real start for the state shown at Start.
  */
-export function startActiveRoomRun(
+export function prepareActiveRoomRun(
     card: XiaomiVacuumMapCard,
     entity: string,
     roomIds: string[],
     mode: MapMode,
 ): ActiveRoomRun {
-    const run: ActiveRoomRun = {
+    const stateObj = card._hass?.states[entity];
+    return {
         entity,
         roomIds,
         startedAt: Date.now(),
         seenActive: false,
         mode: getRoomRunModeKey(mode),
-        reportedState: card._hass?.states[entity]?.state,
-        reportedChangedAt: card._hass?.states[entity]?.last_changed,
+        reportedState: stateObj?.state,
+        reportedChangedAt: stateObj?.last_changed,
     };
-    saveActiveRoomRun(entity, run);
-    advanceCardActiveRun(card);
-    return run;
 }
 
 /**
- * Undoes a run whose service call failed: nothing is cleaning, so the run leaves the map and the
- * user gets the selection back in the same order to retry. A newer run another card started is
- * left alone, and so is a selection the user has already begun again.
+ * Stores a run once Home Assistant accepted its service call, so every card and tab shows it. A
+ * call that fails stores nothing; the selection was never cleared (see `runSelection`).
  */
-export function rollBackActiveRoomRun(
-    card: XiaomiVacuumMapCard,
-    run: ActiveRoomRun,
-    mode: MapMode,
-    restoreSelection: () => void,
-): void {
-    clearActiveRoomRunIf(run.entity, run);
+export function startActiveRoomRun(card: XiaomiVacuumMapCard, run: ActiveRoomRun): void {
+    saveActiveRoomRun(run.entity, run);
     advanceCardActiveRun(card);
-    if (card._getCurrentMode() !== mode || card._getCurrentPreset()?.entity !== run.entity) return;
-    if (card.selectedRooms.length > 0) return;
-    restoreSelection();
-    card.requestUpdate();
 }
 
 /**
