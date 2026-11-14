@@ -17,7 +17,7 @@ import { MapObject } from "../model/map_objects/map-object";
 import type { XiaomiVacuumMapCard } from "../xiaomi-vacuum-map-card";
 import { calculateBasicScale } from "./map-view";
 import { dismissActiveRoomRun } from "./active-run";
-import { getActiveRoomOrder } from "./active-run";
+import { getActiveRoomOrder, isActiveRoomRunShownLocked } from "./active-run";
 import { getLiveRoomIds } from "./rooms";
 import { getRoomsConfig } from "./rooms";
 import { getStaleRoomIds } from "./rooms";
@@ -47,8 +47,9 @@ export function createContext(card: XiaomiVacuumMapCard): Context {
         entity => card._hass.states[entity].state,
         entity => void callServiceReported(card, "homeassistant", "toggle", { entity_id: entity }),
         () => getActiveRoomOrder(card),
-        () => getActiveRoomOrder(card).length > 0 && card.activeRoomRun?.seenActive === true,
+        () => isActiveRoomRunShownLocked(card),
         () => dismissActiveRoomRun(card),
+        () => card._getCurrentMode()?.showsRoomOrder() ?? false,
     );
 }
 

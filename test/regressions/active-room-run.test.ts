@@ -44,7 +44,9 @@ describe("advanceActiveRoomRun", () => {
 
     it("ends the run the moment the vacuum is done after it was seen working", () => {
         // Locking the rooms while the vacuum sits on the dock left users unable to do anything.
-        for (const state of ["docked", "idle", "error", "unavailable"]) {
+        // `unavailable` is not "done": a polling integration reports it mid-run, so it keeps the run
+        // without locking the rooms (see room-run-lifecycle.test.ts).
+        for (const state of ["docked", "idle", "error"]) {
             expect(advanceActiveRoomRun(run({ seenActive: true }), state, 5_000)).toBeUndefined();
         }
     });
@@ -53,7 +55,8 @@ describe("advanceActiveRoomRun", () => {
 function cardConfig(): XiaomiVacuumMapCardConfig {
     return {
         ...fixtureConfig(loadSyntheticFixture()),
-        map_modes: [{ template: "vacuum_clean_segment" }],
+        // The badges are what is tested, so the mode declares that the platform follows the order.
+        map_modes: [{ template: "vacuum_clean_segment", cleaning_order: true }],
         tiles: [],
         icons: [],
         persist_map_view: false,

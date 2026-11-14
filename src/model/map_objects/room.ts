@@ -59,8 +59,11 @@ export class Room extends PredefinedMapObject {
         // a run has started and the selection is cleared, the rooms of that run look exactly as they
         // did when selected, numbers included, until the vacuum is done. A tap either is refused
         // (rooms locked) or drops the run first (see `click`), so the two sources never mix.
+        // The numbers are drawn only where the platform follows the order (see
+        // `MapMode.showsRoomOrder`); elsewhere the rooms are highlighted without a number.
         const runOrder = this._selected ? 0 : this._context.activeRoomOrder().indexOf(String(this._config.id)) + 1;
-        const order = this._selected ? this._context.selectedRooms().indexOf(this) + 1 : runOrder;
+        const position = this._selected ? this._context.selectedRooms().indexOf(this) + 1 : runOrder;
+        const order = this._context.showRoomOrder() ? position : 0;
         const highlighted = this._selected || runOrder > 0;
         const iconContent = order > 0 ? html`<span class="room-order">${order}</span>` : undefined;
         return svg`
