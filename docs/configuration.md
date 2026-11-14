@@ -281,7 +281,8 @@ shown when you pressed it, or the same state changed again (a new `last_changed`
 integration can still show the previous job, then report its trip home and dock, before it reports
 the new rooms; a `returning` is never taken as the start, and neither is an update that only
 changes attributes such as the battery level. If the vacuum was already cleaning and nothing
-changes, the run counts as started after three minutes. While the start is pending, the card's
+changes, the run counts as started after three minutes; a vacuum still `returning` or `paused`
+then ignored the command, and the run ends. While the start is pending, the card's
 icons read the vacuum as `cleaning`, so the play icon does not offer a full clean for a job that is
 already starting, until the vacuum reports a new state such as `docked` or `error`.
 

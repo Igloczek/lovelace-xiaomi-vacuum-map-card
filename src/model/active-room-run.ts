@@ -78,7 +78,8 @@ function isWorking(state: string | undefined): boolean {
  * the same state with a new `last_changed`. `returning` and `paused` are never the start of a room
  * job; after Start they are the previous job's trip home, still on its way through a lagging
  * integration. If the vacuum was already cleaning and nothing changes, the start grace accepts
- * that working state rather than drop a run that is probably in progress. `unavailable` and
+ * that `cleaning` rather than drop a run that is probably in progress; any other state at the
+ * deadline drops the run. `unavailable` and
  * `unknown` neither start nor end a run.
  */
 export function advanceActiveRoomRun(
@@ -89,10 +90,12 @@ export function advanceActiveRoomRun(
 ): ActiveRoomRun | undefined {
     if (!run) return undefined;
     if (now - run.startedAt > ACTIVE_ROOM_RUN_MAX_AGE_MS) return undefined;
-    const working = isWorking(vacuumState);
-    if (run.seenActive) return working || !isInformative(vacuumState) ? run : undefined;
+    if (run.seenActive) return isWorking(vacuumState) || !isInformative(vacuumState) ? run : undefined;
     if (vacuumState === "cleaning" && isNewReport(run, vacuumState, lastChanged)) return { ...run, seenActive: true };
-    if (now - run.startedAt > ACTIVE_ROOM_RUN_START_GRACE_MS) return working ? { ...run, seenActive: true } : undefined;
+    // At the deadline only `cleaning` is accepted: a vacuum that was already cleaning and took the
+    // new rooms without a new report. A `returning` or `paused` still shown then is the previous
+    // job, and the command was ignored.
+    if (now - run.startedAt > ACTIVE_ROOM_RUN_START_GRACE_MS) return vacuumState === "cleaning" ? { ...run, seenActive: true } : undefined;
     return run;
 }
 

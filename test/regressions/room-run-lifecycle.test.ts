@@ -85,6 +85,17 @@ describe("advanceActiveRoomRun with lagging and uninformative states", () => {
         expect(advanceActiveRoomRun(pending, "docked", late, BEFORE_START)).toBeUndefined();
     });
 
+    for (const state of ["returning", "paused"]) {
+        it(`drops a pending run at the start grace while the vacuum is still ${state}`, () => {
+            // The command was ignored (a Viomi heading home does), and the previous job's state is
+            // still shown. Only `cleaning` can be this run's start, also at the deadline.
+            const pending = run({ reportedState: state, reportedChangedAt: BEFORE_START });
+            const late = 1_000 + ACTIVE_ROOM_RUN_START_GRACE_MS + 1;
+            expect(advanceActiveRoomRun(pending, state, late, BEFORE_START)).toBeUndefined();
+            expect(isActiveRoomRunLocked(advanceActiveRoomRun(pending, state, late, BEFORE_START), state)).toBe(false);
+        });
+    }
+
     it("reports when the run can change without a state update", () => {
         expect(nextActiveRoomRunDeadline(run())).toBe(1_000 + ACTIVE_ROOM_RUN_START_GRACE_MS + 1);
         expect(nextActiveRoomRunDeadline(run({ seenActive: true }))).toBe(1_000 + ACTIVE_ROOM_RUN_MAX_AGE_MS + 1);
@@ -282,6 +293,35 @@ describe("the run on the map after Start", () => {
         // Not started, so not locked: a tap starts a new selection.
         await clickRoom(card, "1");
         expect(selectedRoomIds(card)).toEqual(["1"]);
+    });
+
+    it("reads the start from last_changed, not last_updated, at card level", async () => {
+        // Start while Home Assistant still shows the previous job `cleaning`; a poll rewrites it
+        // with a new attribute (new last_updated, same last_changed), then the stale `docked`.
+        // Neither is this run's start, so the run stays on the map, pending.
+        useHarnessClock();
+        const hass = withState(fixtureHass(loadSyntheticFixture()), VACUUM, {
+            state: "cleaning",
+            last_changed: BEFORE_START,
+            last_updated: BEFORE_START,
+        }).hass;
+        const card = await mount({}, hass);
+        await startRun(card);
+        await card.updateHass(
+            withState(card.hass, VACUUM, {
+                state: "cleaning",
+                last_changed: BEFORE_START,
+                last_updated: "2026-11-01T10:00:05.000Z",
+                attributes: { ...card.hass.states[VACUUM].attributes, battery_level: 41 },
+            }).hass,
+        );
+        await settle(card.element);
+        await card.updateHass(
+            withState(card.hass, VACUUM, { state: "docked", last_changed: "2026-11-01T10:00:10.000Z", last_updated: "2026-11-01T10:00:10.000Z" }).hass,
+        );
+        await settle(card.element);
+        expect(badges(card)).toEqual({ "2": "1", "0": "2" });
+        expect(loadActiveRoomRun(VACUUM)?.seenActive).toBe(false);
     });
 
     it("shows the run while the service call is still in flight", async () => {
