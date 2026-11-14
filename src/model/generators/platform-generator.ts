@@ -28,6 +28,7 @@ import {
     VariablesStorage,
 } from "../../types/types";
 import { SelectionType } from "../map_mode/selection-type";
+import { TemplatableValue } from "../map_mode/templatable-value";
 
 export class PlatformGenerator {
     public static DEFAULT_PLATFORM = "default";
@@ -155,10 +156,33 @@ export class PlatformGenerator {
         const roomsTemplate = this.getRoomsTemplate(platform);
         const roomSelection = SelectionType[SelectionType.ROOM];
         const hasRoomMode = modes.some(m => this.getModeTemplate(platform, m.template as string)?.selection_type === roomSelection);
-        if (roomsTemplate !== undefined && !hasRoomMode) {
+        if (roomsTemplate !== undefined && !hasRoomMode && this.isSelfContainedTemplate(platform, roomsTemplate)) {
             modes.push({ template: roomsTemplate });
         }
         return modes;
+    }
+
+    /**
+     * Whether a mode template sends a complete service call with nothing but the selection: it has
+     * service data, and every `[[placeholder]]` in it is one the card fills itself (the entity, the
+     * selection, repeats, the jsonify modifiers) or a variable the platform template defines.
+     * A template that needs a hand-configured variable (an MQTT `[[topic]]`, a Roomba `[[pmap_id]]`,
+     * per-room `[[variables]]`) or has no service data at all (al-one/hass-xiaomi-miot, configured
+     * per model) would send a broken call, so it is never added as a default.
+     */
+    public static isSelfContainedTemplate(platform: string, template: string): boolean {
+        const mode = this.getModeTemplate(platform, template);
+        const schema = mode?.service_call_schema;
+        if (!schema?.service || !schema.service_data) return false;
+        const known = new Set<string>([
+            ...Object.values(TemplatableValue),
+            "jsonify",
+            "jsonify_jinja",
+            ...Object.keys(this.getPlatformTemplate(platform).internal_variables ?? {}),
+            ...Object.keys(mode.variables ?? {}),
+        ]);
+        const text = JSON.stringify([schema.service_data, schema.target ?? null]);
+        return [...text.matchAll(/\[\[([A-Za-z0-9_]+)\]\]/g)].every(match => known.has(match[1]));
     }
 
     public static getTilesFromAttributesTemplates(platform: string): TileFromAttributeTemplate[] {

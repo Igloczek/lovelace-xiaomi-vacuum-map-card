@@ -212,13 +212,32 @@ describe("default modes follow the camera's room metadata", () => {
         p => !SETUP_PLATFORMS.includes(p) && PlatformGenerator.getRoomsTemplate(p) !== undefined,
     );
 
-    it.each(ROOM_PLATFORMS)("%s: a camera with rooms gives a room mode without map_modes", async platform => {
+    // Room templates that need hand-written configuration to send a working call. Offering them by
+    // default would put a Rooms mode on the map that sends a broken service call.
+    const NEEDS_CONFIGURATION = [
+        "al-one/hass-xiaomi-miot", // no service data: configured per model
+        "Hypfer/Valetudo", // [[topic]]
+        "rand256/ValetudoRE", // [[topic]]
+        "Roomba", // [[pmap_id]] and per-room [[variables]]
+    ];
+
+    it.each(ROOM_PLATFORMS)("%s: a camera with rooms gives a working room mode without map_modes", async platform => {
         const { hass, config } = platformWorld(platform, () => ["5", {}]);
         const card = await mountCard(config, hass);
         await settle(card.element, 200);
         const roomModes = card.element.modes.filter(m => m.selectionType === SelectionType.ROOM);
-        expect(roomModes.length).toBeGreaterThanOrEqual(1);
-        // The rooms come from the camera's metadata, string ids and all.
+        if (NEEDS_CONFIGURATION.includes(platform)) {
+            expect(roomModes).toHaveLength(0);
+        } else {
+            expect(roomModes.length).toBeGreaterThanOrEqual(1);
+            // The call carries the camera's string ids and no unfilled placeholder.
+            const call = roomModes[0].serviceCallSchema.apply(VACUUM, ["13", "14"], 1, {
+                ...roomModes[0].variables,
+                ...card.element.internalVariables,
+            });
+            expect(JSON.stringify(call)).not.toMatch(/\[\[[a-z_]+\]\]/);
+            expect(JSON.stringify(call)).toContain("13");
+        }
         await card.cleanup();
     });
 
@@ -250,7 +269,7 @@ describe("default modes follow the camera's room metadata", () => {
 
 describe("room metadata that arrives after the card loaded", () => {
     it("adds the room mode once the camera reports rooms, keeping the selected mode", async () => {
-        const world = platformWorld("al-one/hass-xiaomi-miot", () => ["5", {}]);
+        const world = platformWorld("Neato", () => ["5", {}]);
         const camera = world.hass.states[CAMERA];
         const withoutRooms = { ...camera.attributes };
         delete withoutRooms.rooms;
