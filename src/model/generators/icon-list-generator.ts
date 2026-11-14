@@ -313,7 +313,7 @@ export class IconListGenerator {
         iconTemplate: SingleIconTemplate,
         entityRegistryEntries: EntityRegistryEntry[]
     ): IconActionConfig[] {
-        const matches = entityRegistryEntries.filter(e => e.unique_id.match(iconTemplate.unique_id_regex));
+        const matches = entityRegistryEntries.filter(e => String(e.unique_id ?? "").match(iconTemplate.unique_id_regex));
         if (matches.length !== 1)
             return [];
         const matched = matches[0];
@@ -335,7 +335,7 @@ export class IconListGenerator {
         iconTemplate: MenuIconTemplate,
         entityRegistryEntries: EntityRegistryEntry[]
     ): MenuIconActionConfig[] {
-        const matches = entityRegistryEntries.filter(e => e.unique_id.match(iconTemplate.unique_id_regex));
+        const matches = entityRegistryEntries.filter(e => String(e.unique_id ?? "").match(iconTemplate.unique_id_regex));
         if (matches.length !== 1)
             return [];
         const matched = matches[0];

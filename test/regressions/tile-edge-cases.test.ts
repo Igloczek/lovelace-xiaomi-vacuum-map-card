@@ -134,3 +134,21 @@ describe("duration multipliers follow the sensor's unit on every platform", () =
         expect(resolveTileMultiplier(template, undefined)).toBe(legacy);
     });
 });
+
+describe("registry entries with an unusual unique_id", () => {
+    it("a numeric or missing unique_id does not stop the other tiles and icons", async () => {
+        const { TilesGenerator } = await import("../../src/model/generators/tiles-generator");
+        const { IconListGenerator } = await import("../../src/model/generators/icon-list-generator");
+        const { withRegistryEntries } = await import("../harness");
+        const base = fixtureHass(loadSyntheticFixture());
+        const hass = withRegistryEntries(base, [
+            { entity_id: "sensor.odd_number", device_id: "device-roborock-s7", unique_id: 12345 as unknown as string },
+            { entity_id: "sensor.odd_null", device_id: "device-roborock-s7", unique_id: null as unknown as string },
+            { entity_id: "sensor.cleaning_time_ok", device_id: "device-roborock-s7", unique_id: "cleaning_time_abc" },
+        ]);
+        const next = withState(hass, "sensor.cleaning_time_ok", { state: "30", attributes: { unit_of_measurement: "min" } }).hass;
+        const tiles = await TilesGenerator.generate(next, VACUUM, "Roborock", "en", [], {});
+        expect(tiles.map(t => t.tile_id)).toContain("cleaning_time");
+        await expect(IconListGenerator.generate(next, VACUUM, "Roborock", "en", [], {})).resolves.toBeDefined();
+    });
+});

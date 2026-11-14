@@ -215,7 +215,7 @@ export class TilesGenerator {
             return PlatformGenerator.getTilesFromSensorsTemplates(platform)
                 .map(t => ({
                     tile: t,
-                    entity: entityRegistryEntries.filter(e => e.unique_id.match(t.unique_id_regex)),
+                    entity: entityRegistryEntries.filter(e => String(e.unique_id ?? "").match(t.unique_id_regex)),
                 }))
                 .flatMap(v => v.entity.map(e => TilesGenerator.mapEntryToTile(hass, vacuumEntityId, e, v.tile, language, variables)))
         }
