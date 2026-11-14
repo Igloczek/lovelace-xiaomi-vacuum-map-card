@@ -33,12 +33,12 @@ const TEMPLATED_ROOM_MODE = {
     },
 } as const;
 
-async function mountRoomsCard(hass: MockHass, mode: Record<string, unknown> = TEMPLATED_ROOM_MODE): Promise<CardHandle> {
+async function mountRoomsCard(hass: MockHass): Promise<CardHandle> {
     useHarnessClock();
     const fixture = loadSyntheticFixture();
     const config: XiaomiVacuumMapCardConfig = {
         ...fixtureConfig(fixture),
-        map_modes: [mode as unknown as MapModeConfig],
+        map_modes: [TEMPLATED_ROOM_MODE as unknown as MapModeConfig],
         tiles: [],
         icons: [],
         persist_map_view: false,
@@ -83,11 +83,7 @@ function answerRenderTemplate(hass: MockHass, answer: (template: string) => Reco
 
 describe("room selections from camera metadata", () => {
     it("keeps click order when the camera refresh rebuilds the rooms", async () => {
-        // The badges are drawn only for a mode that declares the platform follows the order.
-        const card = await mountRoomsCard(fixtureHass(loadSyntheticFixture()), {
-            ...TEMPLATED_ROOM_MODE,
-            cleaning_order: true,
-        });
+        const card = await mountRoomsCard(fixtureHass(loadSyntheticFixture()));
         await clickRoom(card, "2");
         await clickRoom(card, "0");
         expect(selectedIds(card)).toEqual(["2", "0"]);

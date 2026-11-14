@@ -5,8 +5,7 @@ import { card, type CardHandle, expect, login, openDashboard, serviceCall, shot,
  * What happens after Start, against a real Home Assistant and a vacuum that misbehaves the way real
  * ones do (`map_fixture/vacuum.py`): it reports its state late, cleans a multi-room command in its
  * own order, ignores a command while it heads home, docks after a job, can fail a call and can go
- * unavailable. The dashboard's ROOM mode is a custom `send_command`, so the card must not number
- * the rooms: this vacuum does not follow the order.
+ * unavailable. Its `cleaned_rooms` records that it cleans in its own order, not the order sent.
  */
 
 const VACUUM = "vacuum.fake_vacuum";
@@ -111,8 +110,8 @@ test.describe("the run after Start, with a misbehaving vacuum", () => {
         await tapRoom(page, target, "2");
         await tapRoom(page, target, "0");
         expect(await selected(target)).toEqual(["2", "0"]);
-        // The vacuum does not follow the order, so the card does not promise one.
-        expect(await numbers(target)).toBe(0);
+        // The numbers show the order tapped and sent, on every platform.
+        expect(await numbers(target)).toBe(2);
 
         await pressStart(page, target);
         // Home Assistant still says docked, but the run is already on the map, and the play icon

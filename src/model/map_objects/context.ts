@@ -32,11 +32,7 @@ export class Context {
         public readonly roomsLocked: () => boolean = () => false,
         /** Drops a started run that the vacuum has not picked up yet, before a new selection. */
         public readonly dismissActiveRun: () => void = () => undefined,
-        /**
-         * True when the current mode's platform cleans rooms in the order they are sent, so the
-         * rooms show their position in that order. Elsewhere a number would promise an order the
-         * vacuum does not follow.
-         */
+        /** False when the current mode turns the order numbers off (`cleaning_order: false`). */
         public readonly showRoomOrder: () => boolean = () => true,
     ) {}
 

@@ -255,12 +255,11 @@ For `ROOM` selections, the card can use room IDs and names from the camera's `ro
 
 #### Cleaning order
 
-Rooms are sent in the order you tap them. Where the platform makes the vacuum follow that order,
-each selected room shows its number; elsewhere the selected rooms are highlighted without numbers,
-because a number would promise an order the vacuum does not keep. The
-[platform list](platforms.md#cleaning-order-per-platform) says which templates number the rooms.
-Set `cleaning_order: true` on a ROOM map mode when your own service call makes the vacuum follow
-the order, or `false` to turn the numbers off.
+Rooms are sent in the order you tap them, and each selected room shows its number in that order.
+Whether the vacuum then cleans in that order depends on the integration and the robot: some follow
+it, others plan their own route (the [platform list](platforms.md#cleaning-order-per-platform) says
+which). The numbers always show the order that was sent. Set `cleaning_order: false` on a ROOM map
+mode to hide them.
 
 After **Start** the rooms stay highlighted, numbers included, exactly as they were selected. The
 run is on the map from the moment the call is sent; if the call fails, it is removed and the
@@ -438,7 +437,7 @@ sensor whose display unit was changed in Home Assistant still shows the right nu
 | `coordinates_rounding`  | boolean | no              | `true`  | Enables coordinates rounding                                                         |
 | `max_selections`        | integer | no              | 1       | Maximal number of selections                                                         |
 | `id_type`               | string  | no              | -       | `number` or `string`: the type room ids are sent as in a `ROOM` mode<sup>4</sup>      |
-| `cleaning_order`        | boolean | no              | template, else `false` | ROOM modes: the vacuum cleans the rooms in the order they are sent, so they are numbered ([cleaning order](#cleaning-order)) |
+| `cleaning_order`        | boolean | no              | `true`  | ROOM modes: number the selected rooms in the order they are tapped and sent ([cleaning order](#cleaning-order)); `false` hides the numbers |
 | `repeats_type`          | string  | no              | `NONE`  | Type of repeats inclusion, one of [supported ones](#supported-repeats-types)         |
 | `max_repeats`           | integer | no              | 1       | Maximal value of repeats                                                             |
 | `variables`             | object  | no              | -       | Variables that should be passed to `service_call_schema`                             |

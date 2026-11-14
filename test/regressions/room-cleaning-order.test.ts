@@ -24,8 +24,7 @@ function cleaningOrderConfig(overrides: Partial<XiaomiVacuumMapCardConfig> = {})
     const fixture = loadSyntheticFixture();
     return {
         ...fixtureConfig(fixture),
-        // The badges are what is tested, so the mode declares that the platform follows the order.
-        map_modes: [{ template: "vacuum_clean_segment", cleaning_order: true }],
+        map_modes: [{ template: "vacuum_clean_segment" }],
         // Pin tiles and icons empty: this file is about the map overlay only.
         tiles: [],
         icons: [],
@@ -187,7 +186,6 @@ describe("cleaning-order badges (#866, upstream #959)", () => {
             map_modes: [
                 {
                     template: "vacuum_clean_segment",
-                    cleaning_order: true,
                     predefined_selections: ROOM_IDS.map(id => ({
                         id: Number(id),
                         icon: { name: "mdi:broom", x: 0, y: 0 },
@@ -218,7 +216,7 @@ describe("cleaning-order badges (#866, upstream #959)", () => {
 
     it("does not number a room that cannot be selected once the selection limit is reached", async () => {
         const { card, hass } = await mountCleaningOrderCard({
-            map_modes: [{ template: "vacuum_clean_segment", cleaning_order: true, max_selections: 2 }],
+            map_modes: [{ template: "vacuum_clean_segment", max_selections: 2 }],
         });
 
         await clickRooms(card, ["2", "0"]);
