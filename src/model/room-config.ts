@@ -41,3 +41,44 @@ export function findStaleRoomIds(
     }
     return staleIds;
 }
+
+/**
+ * The camera's `rooms` attribute as room metadata keyed by id, or `undefined` when it is not a
+ * plain object. A string, a list or a number is integration garbage, not metadata: its keys
+ * (character or list indexes) are not room ids and must not count as live rooms.
+ */
+export function roomMetadata<T = unknown>(value: unknown): Record<string, T> | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    return value as Record<string, T>;
+}
+
+/**
+ * A metadata room's outline in vacuum coordinates: its own `outline` when that is a list of at
+ * least three numeric points, else its `x0`/`y0`/`x1`/`y1` bounds as a rectangle, else
+ * `undefined` for an entry that is not a usable room (null, a string, non-numeric values).
+ */
+export function metadataRoomOutline(room: unknown): Array<[number, number]> | undefined {
+    if (!room || typeof room !== "object") return undefined;
+    const entry = room as Record<string, unknown>;
+    if (entry.outline !== undefined && entry.outline !== null) {
+        const outline = entry.outline;
+        if (!Array.isArray(outline) || outline.length < 3) return undefined;
+        const points = outline.filter(
+            (point): point is [number, number] =>
+                Array.isArray(point) && point.length >= 2 && isFiniteNumber(point[0]) && isFiniteNumber(point[1]),
+        );
+        return points.length === outline.length ? points.map(point => [point[0], point[1]]) : undefined;
+    }
+    const { x0, y0, x1, y1 } = entry;
+    if (!isFiniteNumber(x0) || !isFiniteNumber(y0) || !isFiniteNumber(x1) || !isFiniteNumber(y1)) return undefined;
+    return [
+        [x0, y0],
+        [x1, y0],
+        [x1, y1],
+        [x0, y1],
+    ];
+}
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value);
+}

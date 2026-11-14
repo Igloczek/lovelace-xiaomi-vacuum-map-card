@@ -20,6 +20,7 @@ is involved: `index.html` plus `harness.js` mount the card element with a mock `
 | `a configured map_view is the rendered starting view` | a configured default opens the card at its centred scale and offset, and a later user zoom still wins |
 | `a configured map_view is centred at rotation 90` | rotation pivots on the content centre, so a scale-only default keeps the map centred and overlays aligned |
 | `a stored view beats the configured default after a remount` | a real browser pan/zoom is written to the store and read back over `map_view` |
+| `room hit-testing follows zoom 1/2.5 and rotation 0/90` | at each overlay zoom/rotation pair, taps near two corners of the framed room toggle it and taps on the visible background 5 image px outside it select nothing; the tap is mapped back to source-image pixels through the shared transform |
 | `room hit-testing selects the clicked room at zoom 1` | clicking a room's colour selects that room, and the selected room's cleaning-order badge is centred above its label |
 | `default vertical layout` | header, preset selector, map and controls stack vertically |
 | `layout geometry at 400 and 800 px` | vertical stacks the controls below the map; horizontal puts them beside it at both widths |

@@ -419,6 +419,72 @@ test("room hit-testing selects the clicked room at zoom 1", async ({ page }) => 
     await expect(page.locator(CARD)).toHaveScreenshot("room-hit-test.png");
 });
 
+// Taps resolve through the detection's per-pixel room map, in source-image pixels: the tap point
+// is mapped back through zoom and rotation first. A tap near two corners of the framed room must
+// toggle that room, and a tap on the background 5 px outside it must select nothing, at every
+// zoom/rotation pair the overlays are checked at. No screenshot: the selection is the assertion.
+for (const zoom of [1, 2.5] as const) {
+    for (const rotation of [0, 90] as const) {
+        test(`room hit-testing follows zoom ${zoom} and rotation ${rotation}`, async ({ page }) => {
+            await mount(page, overlayConfig(rotation));
+            if (zoom !== 1) {
+                const anchor = await page.evaluate(() =>
+                    (window as unknown as VisualWindow).visualHarness.roomAnchor("1"),
+                );
+                await setZoom(page, zoom, anchor);
+            }
+            const selected = (): Promise<string[]> =>
+                page.evaluate(() => (window as unknown as VisualWindow).visualHarness.selectedRoomIds());
+            const pointAt = (fractionX: number, fractionY: number): Promise<{ x: number; y: number }> =>
+                page.evaluate(
+                    input => (window as unknown as VisualWindow).visualHarness.roomPoint("1", input.x, input.y),
+                    { x: fractionX, y: fractionY },
+                );
+            // The map controls float over the map, and a zoomed map is clipped by its viewport; a
+            // point under the controls or outside the map would not test the map's hit-testing.
+            const onMap = (point: { x: number; y: number }): Promise<boolean> =>
+                page.evaluate(
+                    input =>
+                        !!document
+                            .querySelector(input.card)
+                            ?.shadowRoot?.elementFromPoint(input.x, input.y)
+                            ?.closest("#map-image-overlay"),
+                    { ...point, card: CARD },
+                );
+            const click = async (fractionX: number, fractionY: number): Promise<void> => {
+                const point = await pointAt(fractionX, fractionY);
+                expect(await onMap(point), `tap at ${fractionX},${fractionY} of room 1 is not on the map`).toBe(true);
+                await page.mouse.click(point.x, point.y);
+            };
+
+            // White background 5 px outside the room, below, above, left or right of it (image
+            // pixels), whichever is on the visible map: zoomed in, the room fills the view on some
+            // sides. Room 1 covers image x 100..170 and y 20..70; rotation 90 turns image x into
+            // screen y and image y into reversed screen x. No room reaches the background, however
+            // close the tap.
+            const backgroundPoints: Array<[number, number]> = [[135, 75], [135, 15], [95, 45], [175, 45]];
+            let backgroundTaps = 0;
+            for (const [imageX, imageY] of backgroundPoints) {
+                const [fractionX, fractionY] =
+                    rotation === 0
+                        ? [(imageX - 100) / 70, (imageY - 20) / 50]
+                        : [(70 - imageY) / 50, (imageX - 100) / 70];
+                const point = await pointAt(fractionX, fractionY);
+                if (!(await onMap(point))) continue;
+                await page.mouse.click(point.x, point.y);
+                backgroundTaps++;
+            }
+            expect(backgroundTaps, "no background point next to room 1 is on the visible map").toBeGreaterThan(0);
+            expect(await selected()).toEqual([]);
+
+            await click(0.12, 0.15);
+            await expect.poll(selected).toEqual(["1"]);
+            await click(0.85, 0.3);
+            await expect.poll(selected).toEqual([]);
+        });
+    }
+}
+
 /**
  * A configured room whose id vanished from the camera metadata after a re-map, drawn from its
  * stored outline on top of the live room with the same geometry (the id shift B8 exists for).

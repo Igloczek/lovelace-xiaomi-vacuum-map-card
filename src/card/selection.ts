@@ -130,6 +130,7 @@ export function setCurrentMode(card: XiaomiVacuumMapCard, newModeIndex: number, 
                 return new Room(config, createContext(card), {
                     imageOutline: region?.outline,
                     stale: staleRoomIds.has(String(room.id)),
+                    cardHitTest: card.roomColorDetection !== undefined,
                 });
             });
             // A rebuild keeps the click order of the rooms that still exist: the order is the

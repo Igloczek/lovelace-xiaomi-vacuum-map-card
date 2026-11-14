@@ -2,9 +2,9 @@ import { cameraRoomsById, readCameraRooms } from "../model/camera-rooms";
 import type { RoomConfig, RoomConfigEventData } from "../types/types";
 import { MapExtractorRoom } from "../types/types";
 import { cameraRefreshKey } from "../model/map-refresh-policy";
-import { Room } from "../model/map_objects/room";
 import { RoomColorDetector } from "../model/room-color-detector";
-import { findStaleRoomIds } from "../model/room-config";
+import { findStaleRoomIds, metadataRoomOutline, roomMetadata } from "../model/room-config";
+import { roomIdAtImagePoint } from "../model/room-hit-test";
 import { MapMode } from "../model/map_mode/map-mode";
 import { SelectionType } from "../model/map_mode/selection-type";
 import type { XiaomiVacuumMapCard } from "../xiaomi-vacuum-map-card";
@@ -100,7 +100,7 @@ export function detectRoomColors(card: XiaomiVacuumMapCard): void {
     const preset = card._getCurrentPreset();
     const camera = preset?.map_source?.camera;
     const entity = camera ? card.hass.states[camera] : undefined;
-    const rooms = entity?.attributes?.rooms as Record<string, MapExtractorRoom> | undefined;
+    const rooms = getLiveRooms(card);
     const image = card._getMapCanvas();
     if (!camera || !entity || !rooms || !image?.width || !image.height) {
         const hadDetection = card.roomColorDetection !== undefined;
@@ -148,8 +148,13 @@ export function handleRoomColorClick(card: XiaomiVacuumMapCard, event: MouseEven
     const x = Math.floor(point.x / card.realScale);
     const y = Math.floor(point.y / card.realScale);
     // The label map, not the pixel's colour: a tap on a cleaning path or the robot drawn over a
-    // room still selects that room.
-    const roomId = RoomColorDetector.roomIdAt(card.roomColorDetection, x, y);
+    // room still selects that room. While a detection exists, rooms it did not find are hit-tested
+    // here too, after it, so their (often bounding-box) outlines cannot take a tap from a detected
+    // room they overlap. Stale rooms are never targets.
+    const fallbacks = card.selectableRooms
+        .filter(room => !room.stale && !room.hasImageOutline)
+        .map(room => ({ id: String(room.toVacuum()), outline: room.outline }));
+    const roomId = roomIdAtImagePoint(card.roomColorDetection, fallbacks, card.coordinatesConverter, x, y);
     if (roomId === undefined) return;
     const room = card.selectableRooms.find(candidate => String(candidate.toVacuum()) === roomId);
     if (room) void room.click();

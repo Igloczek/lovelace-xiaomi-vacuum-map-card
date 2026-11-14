@@ -89,6 +89,18 @@
 
 - `id_type` and Jinja templates in `service_call_schema` are documented, and the Deebot page names the
   service it calls.
+- Rooms that share a fill colour are all detected. Valetudo and Dreame colour rooms from a
+  four-colour palette, and Xiaomi Cloud Map Extractor's default palette repeats colours, so only
+  one room per colour was drawn and selectable from the map before.
+- Tapping the robot, the charger, a room icon or name, furniture or a no-go zone drawn over a room
+  selects that room, including the robot on a doorway between two rooms and the docked robot at
+  a wall. Taps on the map's background still select nothing.
+- The room name and order badge of an L- or U-shaped room are drawn on the room, not on the
+  neighbouring room or the space inside its bend.
+- A room the map colours did not reveal no longer takes taps meant for a detected room its outline
+  overlaps.
+- Room metadata the card cannot use (a `null` or text entry, an outline that is not a list of
+  points, a `rooms` attribute that is not an object) is skipped instead of breaking the card.
 
 ## 1.0.7
 
