@@ -55,7 +55,8 @@ describe("advanceActiveRoomRun", () => {
 function cardConfig(): XiaomiVacuumMapCardConfig {
     return {
         ...fixtureConfig(loadSyntheticFixture()),
-        map_modes: [{ template: "vacuum_clean_segment" }],
+        // The badges are what is tested, so the mode declares that the platform follows the order.
+        map_modes: [{ template: "vacuum_clean_segment", cleaning_order: true }],
         tiles: [],
         icons: [],
         persist_map_view: false,

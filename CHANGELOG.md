@@ -13,9 +13,9 @@
   unavailable keeps the mode and the selection.
 ### Changed
 
-- A ROOM map mode can set `cleaning_order: false` to hide the order numbers; they stay on by
-  default on every platform. The platform list documents which integrations make the vacuum follow
-  the order.
+- Rooms are numbered only where the platform makes the vacuum follow the order: Valetudo,
+  ValetudoRE and roomba_plus. Elsewhere, including Xiaomi Miio, Roborock, Dreame and Viomi, selected
+  rooms are highlighted without numbers. A ROOM map mode can set `cleaning_order: true` or `false`.
 - A run is no longer locked while the vacuum is paused or `unavailable`; a tap starts a new
   selection.
 

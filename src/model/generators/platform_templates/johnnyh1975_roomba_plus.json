@@ -9,6 +9,7 @@
                 "name": "Clean room",
                 "icon": "mdi:floor-plan",
                 "selection_type": "ROOM",
+                "cleaning_order": true,
                 "repeats_type": "NONE",
                 "max_selections": 5,
                 "service_call_schema": {
@@ -24,6 +25,7 @@
                 "name": "Clean room (two pass)",
                 "icon": "mdi:floor-plan",
                 "selection_type": "ROOM",
+                "cleaning_order": true,
                 "repeats_type": "NONE",
                 "max_selections": 5,
                 "service_call_schema": {

@@ -30,10 +30,7 @@ export class MapMode {
     public selectionType: SelectionType;
     public idType?: "number" | "string";
     public maxSelections: number;
-    /**
-     * ROOM modes number the selected rooms in the order they are tapped and sent, unless the mode
-     * sets `cleaning_order: false`.
-     */
+    /** The platform cleans selected rooms in the order they are sent (`cleaning_order`). */
     public cleaningOrder: boolean;
     public coordinatesRounding: boolean;
     public coordinatesToMetersDivider: number;
@@ -54,7 +51,7 @@ export class MapMode {
             ? SelectionType[config.selection_type]
             : SelectionType.PREDEFINED_POINT;
         this.maxSelections = config.max_selections ?? 999;
-        this.cleaningOrder = config.cleaning_order !== false;
+        this.cleaningOrder = config.cleaning_order === true;
         this.coordinatesRounding = config.coordinates_rounding ?? true;
         this.coordinatesToMetersDivider = config.coordinates_to_meters_divider ?? 1000;
         this.runImmediately = config.run_immediately ?? false;
@@ -157,7 +154,7 @@ export class MapMode {
             selection_type: SelectionType[this.selectionType],
             id_type: this.idType,
             max_selections: this.maxSelections,
-            ...(this.selectionType === SelectionType.ROOM && !this.cleaningOrder ? { cleaning_order: false } : {}),
+            ...(this.selectionType === SelectionType.ROOM ? { cleaning_order: this.cleaningOrder } : {}),
             repeats_type: RepeatsType[this.repeatsType],
             max_repeats: this.maxRepeats,
             service_call_schema: JSON.parse(JSON.stringify(this.serviceCallSchema.config)),
@@ -199,15 +196,19 @@ export class MapMode {
             this.serviceCallSchema = new ServiceCallSchema(templateValue.service_call_schema);
             this.legacyServiceCallSchemas = MapMode._legacySchemas(templateValue.legacy_service_call_schemas);
         }
-        if (config.cleaning_order === undefined && templateValue.cleaning_order === false) this.cleaningOrder = false;
+        // The template's claim is about the template's own service call; a replaced call has to
+        // make its own claim.
+        if (config.cleaning_order === undefined && !config.service_call_schema)
+            this.cleaningOrder = templateValue.cleaning_order === true;
     }
 
     /**
-     * Whether rooms show their position in the order they were tapped, which is the order sent to
-     * the vacuum. On by default on every platform; `cleaning_order: false` turns the numbers off.
+     * Whether rooms show their position in the cleaning order. Only where the platform follows the
+     * order: a number on a vacuum that plans its own route promises something it does not do. A
+     * mode that takes one room has no order to show.
      */
     public showsRoomOrder(): boolean {
-        return this.selectionType === SelectionType.ROOM && this.cleaningOrder;
+        return this.selectionType === SelectionType.ROOM && this.cleaningOrder && this.maxSelections > 1;
     }
 
     private static _legacySchemas(

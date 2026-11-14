@@ -152,8 +152,8 @@ export interface MapModeConfig {
     readonly selection_type?: string;
     readonly max_selections?: number;
     /**
-     * ROOM modes: `false` hides the numbers that show the order the rooms were tapped and sent.
-     * Numbers are on by default.
+     * ROOM modes: the platform cleans the rooms in the order they are sent, so the card numbers
+     * them. Platform templates set it where the integration is known to follow the order.
      */
     readonly cleaning_order?: boolean;
     readonly repeats_type?: string;
