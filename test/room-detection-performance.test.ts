@@ -8,13 +8,17 @@ import { Rect, Rgb, SyntheticMap, roomBounds, syntheticMapCalibration } from "./
 /**
  * A budget for tracing a large map, so a slow change to the detector fails here rather than as a
  * frozen wall tablet. The map is 1024 x 1024 with 20 walled rooms covered in cleaning lanes and a
- * six-colour palette that repeats. On a developer machine one run takes about 220 ms; the budget is
- * about three and a half times that, and the best of three runs is measured so one slow run on a
- * loaded CI runner does not fail it. The card also reuses a detection for newer snapshots of the
- * same rooms (see room-detection-reuse.test.ts).
+ * six-colour palette that repeats.
+ *
+ * Wall-clock budgets flake: test files run in parallel workers and CI runners are shared. The
+ * detection is timed against a fixed reference workload measured in between, which slows down
+ * with the machine the same way; the best of several runs of each is compared. Detection measured
+ * about 18 to 19 times the reference (around 250-330 ms, alone and in the full parallel suite), so
+ * the budget is about three times that. The card also reuses a detection for newer snapshots of
+ * the same rooms (see room-detection-reuse.test.ts).
  */
-const BUDGET_MS = 800;
-const RUNS = 3;
+const BUDGET_RATIO = 55;
+const RUNS = 5;
 
 function largeMap(): { map: SyntheticMap; rooms: Record<string, MapExtractorRoom> } {
     const size = 1024;
@@ -43,19 +47,48 @@ function largeMap(): { map: SyntheticMap; rooms: Record<string, MapExtractorRoom
     return { map, rooms };
 }
 
+/**
+ * A fixed amount of plain pixel work: one 3 x 3 box blur over the map. Timed between detection
+ * runs, it slows down with the machine (other test workers, a loaded CI runner) the way detection
+ * does, so the budget is a ratio to it rather than a wall-clock time.
+ */
+function referenceWork(map: SyntheticMap): number {
+    const { width, height, data } = map;
+    const out = new Uint32Array(width * height);
+    for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+            let sum = 0;
+            for (let dy = -1; dy <= 1; dy++) {
+                const row = (y + dy) * width;
+                for (let dx = -1; dx <= 1; dx++) sum += data[(row + x + dx) * 4];
+            }
+            out[y * width + x] = sum;
+        }
+    }
+    return out[width + 1];
+}
+
 describe("room detection performance", () => {
-    it(`traces 20 rooms on a 1024 x 1024 map within ${BUDGET_MS} ms (best of ${RUNS})`, () => {
+    it("traces 20 rooms on a 1024 x 1024 map", () => {
         const { map, rooms } = largeMap();
         const converter = new CoordinatesConverter(syntheticMapCalibration(map.width, map.height));
         let detection = RoomColorDetector.detectFromImageData(map, rooms, converter);
-        let elapsed = Number.POSITIVE_INFINITY;
+        referenceWork(map);
+        let detectMs = Number.POSITIVE_INFINITY;
+        let referenceMs = Number.POSITIVE_INFINITY;
         for (let run = 0; run < RUNS; run++) {
-            const start = performance.now();
+            let start = performance.now();
+            referenceWork(map);
+            referenceMs = Math.min(referenceMs, performance.now() - start);
+            start = performance.now();
             detection = RoomColorDetector.detectFromImageData(map, rooms, converter);
-            elapsed = Math.min(elapsed, performance.now() - start);
+            detectMs = Math.min(detectMs, performance.now() - start);
         }
         expect(detection?.regions).toHaveLength(20);
         expect(detection?.complete).toBe(true);
-        expect(elapsed).toBeLessThan(BUDGET_MS);
-    }, 30_000);
+        expect(
+            detectMs / referenceMs,
+            `detection ${detectMs.toFixed(0)} ms against a ${referenceMs.toFixed(1)} ms reference`,
+        ).toBeLessThan(BUDGET_RATIO);
+    }, 60_000);
 });
