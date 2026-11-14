@@ -65,9 +65,20 @@ describe("garbage camera rooms metadata", () => {
             "5": { x0: "100", y0: 100, x1: 300, y1: 300, name: "String bound" },
             "6": { x0: Number.NaN, y0: 0, x1: 10, y1: 10 },
             "7": extractorRoom(1000, 200, 1700, 700, "Living room"),
+            // A broken outline next to usable bounds: the bounds still describe the room.
+            "8": { ...extractorRoom(200, 900, 800, 1300, "Bedroom"), outline: "not a list" },
         });
-        expect(roomIds(card)).toEqual(["0", "7"]);
+        expect(roomIds(card)).toEqual(["0", "7", "8"]);
         expect(card.shadowRoot.querySelector("hui-warning")).toBeNull();
+    });
+
+    it("keeps a configured room whose metadata entry is unusable, drawn from its own outline", async () => {
+        // Room 0's id is live (the camera lists it), so it is not stale; its metadata has no
+        // geometry, so the configured outline is the only one there is. It must not vanish.
+        const card = await mountWithRooms({ "0": null, "7": extractorRoom(1000, 200, 1700, 700, "Living room") });
+        expect(roomIds(card)).toEqual(["0", "7"]);
+        expect(card.shadowRoot.querySelector(".room-0-wrapper.room-stale")).toBeNull();
+        expect(card.shadowRoot.querySelector(".room-0-wrapper .room-label")?.textContent?.trim()).toBe("Configured 0");
     });
 
     it.each([

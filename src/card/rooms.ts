@@ -96,6 +96,9 @@ export function adjustRoomId(roomId: string | number, config: MapMode): string |
     return config.toServiceRoomId(roomId);
 }
 
+/** How long a complete room detection is reused for newer snapshots of the same room geometry. */
+const ROOM_DETECTION_REUSE_MS = 10 * 60 * 1000;
+
 export function detectRoomColors(card: XiaomiVacuumMapCard): void {
     const preset = card._getCurrentPreset();
     const camera = preset?.map_source?.camera;
@@ -124,9 +127,23 @@ export function detectRoomColors(card: XiaomiVacuumMapCard): void {
     card.lastRoomColorDetectionKey = detectionKey;
 
     const previousDetection = card.roomColorDetection;
-    card.roomColorDetection = card.coordinatesConverter
-        ? RoomColorDetector.detect(image, rooms, card.coordinatesConverter)
-        : undefined;
+    const converter = card.coordinatesConverter;
+    // While the vacuum cleans the camera publishes a snapshot every few seconds in which only the
+    // robot and the path moved. Tracing every room again each time costs hundreds of milliseconds
+    // on a large map, so a complete detection of the same room geometry is kept; its label map
+    // still covers the old robot spot as floor, and tap reach covers the new one. The rooms are
+    // rebuilt below either way, so a renamed room shows its new name. A changed shape, size or
+    // calibration, an incomplete detection, or ten minutes passing traces the rooms again.
+    const reusable =
+        previousDetection?.complete === true &&
+        converter !== undefined &&
+        card.roomColorDetectionAt !== undefined &&
+        Date.now() - card.roomColorDetectionAt < ROOM_DETECTION_REUSE_MS &&
+        previousDetection.geometryKey === RoomColorDetector.geometryKey(image.width, image.height, rooms, converter);
+    if (!reusable) {
+        card.roomColorDetection = converter ? RoomColorDetector.detect(image, rooms, converter) : undefined;
+        card.roomColorDetectionAt = card.roomColorDetection ? Date.now() : undefined;
+    }
     if (!card.roomColorDetection && !previousDetection) return;
 
     card._refreshRoomsAfterColorDetection();

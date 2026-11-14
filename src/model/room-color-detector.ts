@@ -1,5 +1,6 @@
 import { MapExtractorRoom, PointType } from "../types/types";
 import { CoordinatesConverter } from "./map_objects/coordinates-converter";
+import { metadataRoomGeometry } from "./room-config";
 
 interface PixelBounds {
     readonly left: number;
@@ -8,11 +9,23 @@ interface PixelBounds {
     readonly bottom: number;
 }
 
+/** A metadata room with usable geometry, in image pixels. */
+interface RoomEntry {
+    readonly id: string;
+    readonly bounds: PixelBounds;
+    /** The room's metadata shape: its own outline, or its bounds rectangle. */
+    readonly polygon: PointType[];
+    /** Only rooms described by bounds are traced from the colours; an own outline is kept as is. */
+    readonly detectable: boolean;
+}
+
 interface RoomCandidate {
     readonly id: string;
     readonly bounds: PixelBounds;
-    /** Colours that cover enough of the room's bounds to be its fill. */
+    /** Colours that cover enough of the room's bounds to be its fill, most frequent first. */
     readonly colorKeys: number[];
+    /** Every other room's bounds: a room's closing never reaches into them. */
+    readonly otherBounds: PixelBounds[];
 }
 
 export interface DetectedRoomColor {
@@ -48,6 +61,14 @@ export interface RoomColorDetection {
      */
     readonly labels: Int16Array;
     readonly labelRoomIds: string[];
+    /**
+     * What the detection depends on besides the pixels: image size, calibration and every room's
+     * metadata shape (`RoomColorDetector.geometryKey`). A newer snapshot of the same map with the
+     * same key only moved the robot or extended a path.
+     */
+    readonly geometryKey?: string;
+    /** Every room described by bounds was found. */
+    readonly complete?: boolean;
 }
 
 /**
@@ -77,6 +98,19 @@ const ENCLOSED_AREA_LIMIT = 64 * 64;
  */
 const TAP_REACH = 10;
 
+/**
+ * A colour patch that fits a room's bounds this well (inside share x coverage) is taken without
+ * scoring the room's other candidate colours (a path colour, a neighbour seen through the bounding
+ * box). Those are scored only if the room ends up without a patch.
+ */
+const GOOD_FIT = 0.5;
+
+/** The least share of its own bounds a room's fill covers. */
+const MIN_COVERAGE = 0.15;
+
+/** Border colours within this per-channel distance of the dominant border colour are background. */
+const BACKGROUND_TOLERANCE = 24;
+
 /** Saturated-colour test shared by the room colour histogram. */
 const MIN_SATURATION = 24;
 const MIN_BRIGHTNESS = 55;
@@ -88,6 +122,8 @@ interface ColorComponent {
     readonly inside: number;
     /** The patch reaches the window margin, so it continues outside the room's bounds. */
     readonly clipped: boolean;
+    /** The patch holds a solid 5 x 5 block: a fill, not a wall or a path line. */
+    readonly solid: boolean;
 }
 
 interface RoomArea {
@@ -97,6 +133,12 @@ interface RoomArea {
     readonly height: number;
     /** 1 where the pixel belongs to the room's colour after closing. */
     readonly mask: Uint8Array;
+    /**
+     * What the solidity test reads: the closing as if no colour were a barrier, plus pixels within
+     * one quantisation step of the room's colour. Lanes of a candidate path colour and a lossy
+     * image's noise across neighbouring colour bins still form a solid fill; a wall stays a line.
+     */
+    readonly near: Uint8Array;
     /** Distance from the room's own colour, for pixels the closing claimed. */
     readonly distance: Uint8Array;
 }
@@ -109,6 +151,14 @@ interface RoomOption {
     readonly components: ColorComponent[];
     readonly component: ColorComponent;
     readonly score: number;
+}
+
+/** What enclosed-area filling and tap reach may grow into. */
+interface GrowLimits {
+    /** Each label's room bounds: a room never grows outside them. */
+    readonly labelBounds: PixelBounds[];
+    /** 1 inside an undetected room's metadata shape. */
+    readonly reserved: Uint8Array;
 }
 
 interface BoundaryEdge {
@@ -133,6 +183,28 @@ export class RoomColorDetector {
         if (x < 0 || y < 0 || x >= width || y >= height) return undefined;
         const label = detection.labels[y * width + x];
         return label >= 0 ? detection.labelRoomIds[label] : undefined;
+    }
+
+    /**
+     * The inputs a detection depends on besides the pixels: image size, calibration and each room's
+     * metadata shape. Two snapshots with the same key show the same rooms in the same places.
+     */
+    public static geometryKey(
+        width: number,
+        height: number,
+        rooms: Record<string, MapExtractorRoom> | undefined,
+        converter: CoordinatesConverter,
+    ): string {
+        const shapes =
+            rooms && typeof rooms === "object" && !Array.isArray(rooms)
+                ? Object.keys(rooms)
+                      .sort()
+                      .map(id => [id, metadataRoomGeometry(rooms[id])?.outline ?? null])
+                : [];
+        const origin = converter.vacuumToMap(0, 0);
+        const unitX = converter.vacuumToMap(1000, 0);
+        const unitY = converter.vacuumToMap(0, 1000);
+        return JSON.stringify([width, height, origin, unitX, unitY, shapes]);
     }
 
     public static detect(
@@ -186,43 +258,66 @@ export class RoomColorDetector {
         rooms: Record<string, MapExtractorRoom>,
         converter: CoordinatesConverter,
     ): RoomColorDetection | undefined {
-        if (!rooms || typeof rooms !== "object") return undefined;
-        const candidates = Object.keys(rooms)
-            .map(id => this._getCandidate(id, rooms[id], imageData, converter))
+        if (!rooms || typeof rooms !== "object" || Array.isArray(rooms)) return undefined;
+        const entries = Object.keys(rooms)
+            .map(id => this._getEntry(id, rooms[id], imageData, converter))
+            .filter((entry): entry is RoomEntry => entry !== undefined);
+        const candidates = entries
+            .filter(entry => entry.detectable)
+            .map(entry => this._getCandidate(entry, entries, imageData))
             .filter((candidate): candidate is RoomCandidate => candidate !== undefined);
         const allKeys = new Set(candidates.flatMap(candidate => candidate.colorKeys));
-
-        const options: RoomOption[] = [];
-        candidates.forEach(candidate => {
-            candidate.colorKeys.forEach(colorKey => {
-                const foreign = new Set(allKeys);
-                foreign.delete(colorKey);
-                const area = this._closeRoomArea(colorKey, foreign, candidate.bounds, imageData);
-                const components = this._components(area, candidate.bounds);
-                components.forEach(component => {
-                    const score = this._score(component, candidate.bounds);
-                    if (score > 0) options.push({ candidate, colorKey, area, components, component, score });
-                });
-            });
-        });
-        options.sort((left, right) => right.score - left.score);
 
         const imageWidth = imageData.width;
         const claimed = new Uint8Array(imageWidth * imageData.height);
         const chosen: RoomOption[] = [];
         const assignedRooms = new Set<string>();
-        options.forEach(option => {
-            if (assignedRooms.has(option.candidate.id)) return;
-            const { area, component } = option;
-            let overlap = 0;
-            component.pixels.forEach(index => {
-                if (claimed[this._toImageIndex(area, index, imageWidth)]) overlap++;
+        /** Takes the best options first; a patch mostly claimed by an earlier room is skipped. */
+        const assign = (options: RoomOption[]): void => {
+            options.sort((left, right) => right.score - left.score);
+            options.forEach(option => {
+                if (assignedRooms.has(option.candidate.id)) return;
+                const { area, component } = option;
+                let overlap = 0;
+                component.pixels.forEach(index => {
+                    if (claimed[this._toImageIndex(area, index, imageWidth)]) overlap++;
+                });
+                if (overlap * 2 > component.pixels.length) return;
+                component.pixels.forEach(index => (claimed[this._toImageIndex(area, index, imageWidth)] = 1));
+                assignedRooms.add(option.candidate.id);
+                chosen.push(option);
             });
-            if (overlap * 2 > component.pixels.length) return;
-            component.pixels.forEach(index => (claimed[this._toImageIndex(area, index, imageWidth)] = 1));
-            assignedRooms.add(option.candidate.id);
-            chosen.push(option);
+        };
+        const optionsFor = (candidate: RoomCandidate, colorKey: number): RoomOption[] => {
+            const foreign = new Set(allKeys);
+            foreign.delete(colorKey);
+            const area = this._closeRoomArea(colorKey, foreign, candidate, imageData);
+            const components = this._components(area, candidate.bounds);
+            return components
+                .map(component => ({ candidate, colorKey, area, components, component, score: this._score(component, candidate.bounds) }))
+                .filter(option => option.score > 0);
+        };
+
+        // First round: each room's colours in order of frequency, stopping at a good fit.
+        const firstRound: RoomOption[] = [];
+        const nextKey = new Map<string, number>();
+        candidates.forEach(candidate => {
+            let index = 0;
+            while (index < candidate.colorKeys.length) {
+                const options = optionsFor(candidate, candidate.colorKeys[index++]);
+                firstRound.push(...options);
+                if (options.some(option => option.score >= GOOD_FIT)) break;
+            }
+            nextKey.set(candidate.id, index);
         });
+        assign(firstRound);
+        // Second round: rooms left without a patch score the colours the first round skipped.
+        const secondRound: RoomOption[] = [];
+        candidates.forEach(candidate => {
+            if (assignedRooms.has(candidate.id)) return;
+            candidate.colorKeys.slice(nextKey.get(candidate.id)).forEach(colorKey => secondRound.push(...optionsFor(candidate, colorKey)));
+        });
+        if (secondRound.length > 0) assign(secondRound);
         if (chosen.length === 0) return undefined;
 
         // Label with the colours rooms actually use, so the closing may claim anything else that is
@@ -231,25 +326,40 @@ export class RoomColorDetector {
         const labels = new Int16Array(imageWidth * imageData.height).fill(-1);
         const priority = new Uint8Array(labels.length).fill(255);
         const labelRoomIds: string[] = [];
+        const labelBounds: PixelBounds[] = [];
         const finalAreas: RoomArea[] = [];
+        const finalComponents: ColorComponent[][] = [];
         // When every candidate colour is some room's fill (the usual case) the barriers are the same
         // as in the first pass, so its areas are reused.
-        const sameBarriers = usedKeys.size === allKeys.size;
+        const sameBarriers = [...allKeys].every(key => usedKeys.has(key));
         chosen.forEach(option => {
             const foreign = new Set(usedKeys);
             foreign.delete(option.colorKey);
-            const area = sameBarriers
-                ? option.area
-                : this._closeRoomArea(option.colorKey, foreign, option.candidate.bounds, imageData);
+            const area = sameBarriers ? option.area : this._closeRoomArea(option.colorKey, foreign, option.candidate, imageData);
             const components = sameBarriers ? option.components : this._components(area, option.candidate.bounds);
             const label = labelRoomIds.push(option.candidate.id) - 1;
+            labelBounds.push(option.candidate.bounds);
             finalAreas.push(area);
-            this._label(area, components, option, label, labels, priority, imageWidth);
+            finalComponents.push(components);
+            this._labelChosen(area, components, option, label, labels, priority, imageWidth);
         });
 
-        this._fillEnclosedAreas(labels, imageData.width, imageData.height);
+        // Rooms the colours did not reveal keep their own metadata shape: nothing below may give
+        // their floor to a detected neighbour.
+        const detectedIds = new Set(labelRoomIds);
+        const reserved = this._reserve(
+            entries.filter(entry => !detectedIds.has(entry.id)),
+            imageData.width,
+            imageData.height,
+        );
+        chosen.forEach((option, label) =>
+            this._labelSecondary(finalAreas[label], finalComponents[label], option, label, labels, reserved, imageWidth),
+        );
+
+        const grow = { labelBounds, reserved };
+        this._fillEnclosedAreas(labels, imageData.width, imageData.height, grow);
         const outlineLabels = labels.slice();
-        this._extendTapReach(labels, imageData);
+        this._extendTapReach(labels, imageData, grow);
 
         const regions: DetectedRoomColor[] = [];
         const roomIdByColor = new Map<number, string>();
@@ -260,7 +370,17 @@ export class RoomColorDetector {
             if (!roomIdByColor.has(option.colorKey)) roomIdByColor.set(option.colorKey, option.candidate.id);
         });
 
-        return regions.length > 0 ? { imageData, regions, roomIdByColor, labels, labelRoomIds } : undefined;
+        if (regions.length === 0) return undefined;
+        const detectable = entries.filter(entry => entry.detectable).length;
+        return {
+            imageData,
+            regions,
+            roomIdByColor,
+            labels,
+            labelRoomIds,
+            geometryKey: this.geometryKey(imageData.width, imageData.height, rooms, converter),
+            complete: regions.length === detectable,
+        };
     }
 
     private static _toImageIndex(area: RoomArea, index: number, imageWidth: number): number {
@@ -269,44 +389,43 @@ export class RoomColorDetector {
         return (area.bounds.top + y) * imageWidth + area.bounds.left + x;
     }
 
-    private static _getCandidate(
+    private static _getEntry(
         id: string,
-        room: MapExtractorRoom | null | undefined,
+        room: unknown,
         imageData: ImageDataLike,
         converter: CoordinatesConverter,
-    ): RoomCandidate | undefined {
-        // Camera metadata is integration data: skip an entry that is not a room with numeric bounds.
-        if (!room || typeof room !== "object" || room.outline) return undefined;
-        const corners = [room.x0, room.y0, room.x1, room.y1];
-        if (!corners.every(value => typeof value === "number" && Number.isFinite(value))) return undefined;
-        const [x0, y0, x1, y1] = corners as number[];
-        const mapped = [
-            converter.vacuumToMap(x0, y0),
-            converter.vacuumToMap(x1, y0),
-            converter.vacuumToMap(x1, y1),
-            converter.vacuumToMap(x0, y1),
-        ];
-        if (mapped.some(point => !Number.isFinite(point[0]) || !Number.isFinite(point[1]))) return undefined;
-        const bounds = this._getBounds(mapped, imageData.width, imageData.height);
+    ): RoomEntry | undefined {
+        // Camera metadata is integration data: skip an entry that is not a room with usable geometry.
+        const geometry = metadataRoomGeometry(room);
+        if (!geometry) return undefined;
+        const polygon = geometry.outline.map(point => converter.vacuumToMap(point[0], point[1]));
+        if (polygon.some(point => !Number.isFinite(point[0]) || !Number.isFinite(point[1]))) return undefined;
+        const bounds = this._getBounds(polygon, imageData.width, imageData.height);
         if (!bounds) return undefined;
+        return { id, bounds, polygon, detectable: geometry.fromBounds };
+    }
 
-        const colors = new Map<number, number>();
+    private static _getCandidate(entry: RoomEntry, entries: RoomEntry[], imageData: ImageDataLike): RoomCandidate | undefined {
+        const { bounds } = entry;
+        const counts = new Uint32Array(32768);
+        const seen: number[] = [];
         let coloredPixels = 0;
         for (let y = bounds.top; y <= bounds.bottom; y++) {
             for (let x = bounds.left; x <= bounds.right; x++) {
                 const key = this._roomColorKey(imageData, (y * imageData.width + x) * 4);
                 if (key === undefined) continue;
-                colors.set(key, (colors.get(key) ?? 0) + 1);
+                if (counts[key]++ === 0) seen.push(key);
                 coloredPixels++;
             }
         }
 
         if (coloredPixels < 8) return undefined;
-        const colorKeys = [...colors.entries()]
-            .filter(([, count]) => count >= 8 && count >= coloredPixels * 0.08)
-            .sort((left, right) => right[1] - left[1])
-            .map(([key]) => key);
-        return colorKeys.length > 0 ? { id, bounds, colorKeys } : undefined;
+        const colorKeys = seen
+            .filter(key => counts[key] >= 8 && counts[key] >= coloredPixels * 0.08)
+            .sort((left, right) => counts[right] - counts[left]);
+        if (colorKeys.length === 0) return undefined;
+        const otherBounds = entries.filter(other => other !== entry).map(other => other.bounds);
+        return { id: entry.id, bounds, colorKeys, otherBounds };
     }
 
     /** The colour key of a pixel that can be a room fill: opaque, saturated and not too dark. */
@@ -336,11 +455,13 @@ export class RoomColorDetector {
      * neighbour seen through the room's bounding box.
      */
     private static _score(component: ColorComponent, bounds: PixelBounds): number {
-        if (component.inside < 8) return 0;
+        if (component.inside < 8 || !component.solid) return 0;
         const boundsArea = (bounds.right - bounds.left + 1) * (bounds.bottom - bounds.top + 1);
         const precision = component.inside / component.pixels.length;
         const coverage = Math.min(1, component.inside / boundsArea);
-        if (precision < 0.5) return 0;
+        // A room's fill covers a fair share of its own bounding box; a wall or a path running
+        // through the bounds of a room drawn without colour does not.
+        if (precision < 0.5 || coverage < MIN_COVERAGE) return 0;
         return precision * coverage * (component.clipped ? 0.25 : 1);
     }
 
@@ -354,9 +475,10 @@ export class RoomColorDetector {
     private static _closeRoomArea(
         colorKey: number,
         foreignColors: Set<number>,
-        roomBounds: PixelBounds,
+        candidate: RoomCandidate,
         imageData: ImageDataLike,
     ): RoomArea {
+        const roomBounds = candidate.bounds;
         const radius = GAP_CLOSING_RADIUS;
         const bounds: PixelBounds = {
             left: Math.max(0, roomBounds.left - BOUNDS_MARGIN),
@@ -366,10 +488,36 @@ export class RoomColorDetector {
         };
         const width = bounds.right - bounds.left + 1;
         const height = bounds.bottom - bounds.top + 1;
+        // Another room's bounds, outside this room's own (or inside it, for a smaller room): map
+        // sources reuse a colour for rooms that do not touch, often only a thin wall apart. The closing would bridge that wall and run
+        // into the same-coloured neighbour, so the neighbour's area is a barrier, never own colour.
+        const otherOwned = new Uint8Array(width * height);
+        const area = (box: PixelBounds): number => (box.right - box.left + 1) * (box.bottom - box.top + 1);
+        candidate.otherBounds.forEach(other => {
+            // Where the bounds overlap, the smaller room owns the overlap: a closet inside a room's
+            // bounding box is the closet's, even when it has the room's colour.
+            const ownsOverlap = area(other) < area(roomBounds);
+            const left = Math.max(other.left, bounds.left);
+            const right = Math.min(other.right, bounds.right);
+            const top = Math.max(other.top, bounds.top);
+            const bottom = Math.min(other.bottom, bounds.bottom);
+            for (let y = top; y <= bottom; y++) {
+                for (let x = left; x <= right; x++) {
+                    const inOwn = x >= roomBounds.left && x <= roomBounds.right && y >= roomBounds.top && y <= roomBounds.bottom;
+                    if (!inOwn || ownsOverlap) otherOwned[(y - bounds.top) * width + x - bounds.left] = 1;
+                }
+            }
+        });
         const own = new Uint8Array(width * height);
+        const near = new Uint8Array(width * height);
         const foreignRoom = new Uint8Array(width * height);
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
+                const index = y * width + x;
+                if (otherOwned[index]) {
+                    foreignRoom[index] = 1;
+                    continue;
+                }
                 const imageOffset = ((bounds.top + y) * imageData.width + bounds.left + x) * 4;
                 if (imageData.data[imageOffset + 3] < 128) continue;
                 const key = this.getColorKey(
@@ -377,8 +525,9 @@ export class RoomColorDetector {
                     imageData.data[imageOffset + 1],
                     imageData.data[imageOffset + 2],
                 );
-                if (key === colorKey) own[y * width + x] = 1;
-                else if (foreignColors.has(key)) foreignRoom[y * width + x] = 1;
+                if (key === colorKey) own[index] = 1;
+                else if (foreignColors.has(key)) foreignRoom[index] = 1;
+                if (this._nearKey(key, colorKey)) near[index] = 1;
             }
         }
 
@@ -400,12 +549,17 @@ export class RoomColorDetector {
                     mask[index] = 1;
                     continue;
                 }
-                if (!grown[index] || foreignRoom[index]) continue;
+                if (!grown[index]) continue;
                 const toEdge = Math.min(x + 1, y + 1, width - x, height - y);
-                if (Math.min(toOutside[index], toEdge) > radius) mask[index] = 1;
+                if (Math.min(toOutside[index], toEdge) <= radius) continue;
+                // Solidity ignores colour barriers: lanes of a path colour that is a candidate
+                // colour still close into a solid fill there.
+                near[index] = 1;
+                if (!foreignRoom[index]) mask[index] = 1;
             }
         }
-        return { bounds, width, height, mask, distance };
+        for (let index = 0; index < near.length; index++) if (mask[index]) near[index] = 1;
+        return { bounds, width, height, mask, near, distance };
     }
 
     /** 8-connected patches of an area's mask, with how much of each lies inside `roomBounds`. */
@@ -413,6 +567,7 @@ export class RoomColorDetector {
         const { width, height, mask, bounds } = area;
         const visited = new Uint8Array(mask.length);
         const queue = new Int32Array(mask.length);
+        const solidAt = this._solidBlocks(area.near, width, height);
         const components: ColorComponent[] = [];
         // A window side that is not the image's own edge: a patch touching it runs past the margin.
         const clipLeft = bounds.left < roomBounds.left - (BOUNDS_MARGIN - 1);
@@ -421,14 +576,12 @@ export class RoomColorDetector {
         const clipBottom = bounds.bottom > roomBounds.bottom + (BOUNDS_MARGIN - 1);
         for (let start = 0; start < mask.length; start++) {
             if (!mask[start] || visited[start]) continue;
-            let head = 0;
-            let tail = 0;
+            const tail = this._floodFill8(mask, visited, width, height, start, queue);
             let inside = 0;
             let clipped = false;
-            queue[tail++] = start;
-            visited[start] = 1;
-            while (head < tail) {
-                const index = queue[head++];
+            let solid = false;
+            for (let position = 0; position < tail; position++) {
+                const index = queue[position];
                 const x = index % width;
                 const y = (index - x) / width;
                 const imageX = bounds.left + x;
@@ -441,30 +594,51 @@ export class RoomColorDetector {
                 ) {
                     inside++;
                 }
+                if (solidAt[index]) solid = true;
                 if ((clipLeft && x === 0) || (clipTop && y === 0) || (clipRight && x === width - 1) || (clipBottom && y === height - 1)) {
                     clipped = true;
                 }
-                for (let neighborY = Math.max(0, y - 1); neighborY <= Math.min(height - 1, y + 1); neighborY++) {
-                    for (let neighborX = Math.max(0, x - 1); neighborX <= Math.min(width - 1, x + 1); neighborX++) {
-                        const neighbor = neighborY * width + neighborX;
-                        if (!mask[neighbor] || visited[neighbor]) continue;
-                        visited[neighbor] = 1;
-                        queue[tail++] = neighbor;
-                    }
-                }
             }
-            components.push({ pixels: queue.slice(0, tail), inside, clipped });
+            components.push({ pixels: queue.slice(0, tail), inside, clipped, solid });
         }
         return components;
     }
 
+    /** Colour keys at most one quantisation step apart on every channel. */
+    private static _nearKey(key: number, other: number): boolean {
+        return (
+            Math.abs((key >> 10) - (other >> 10)) <= 1 &&
+            Math.abs(((key >> 5) & 31) - ((other >> 5) & 31)) <= 1 &&
+            Math.abs((key & 31) - (other & 31)) <= 1
+        );
+    }
+
+    /** 1 at the centre of every 5 x 5 block that lies wholly in the mask. */
+    private static _solidBlocks(mask: Uint8Array, width: number, height: number): Uint8Array {
+        const horizontal = new Uint8Array(mask.length);
+        for (let y = 0; y < height; y++) {
+            let run = 0;
+            for (let x = 0; x < width; x++) {
+                run = mask[y * width + x] ? run + 1 : 0;
+                if (run >= 5) horizontal[y * width + x - 2] = 1;
+            }
+        }
+        const solid = new Uint8Array(mask.length);
+        for (let x = 0; x < width; x++) {
+            let run = 0;
+            for (let y = 0; y < height; y++) {
+                run = horizontal[y * width + x] ? run + 1 : 0;
+                if (run >= 5) solid[(y - 2) * width + x] = 1;
+            }
+        }
+        return solid;
+    }
+
     /**
-     * Writes a room into the image-wide label map: its chosen patch, plus any other patch of its
-     * colour that lies mostly inside its bounds (a room split by a wide obstacle). A pixel two rooms
-     * claim goes to the one whose own colour is nearer, then to the one whose bounds contain it,
-     * so rooms that share a colour split at their bounds.
+     * Writes a room's chosen patch into the image-wide label map. A pixel two rooms claim goes to the
+     * one whose own colour is nearer, then to the one whose bounds contain it.
      */
-    private static _label(
+    private static _labelChosen(
         area: RoomArea,
         components: ColorComponent[],
         option: RoomOption,
@@ -474,35 +648,93 @@ export class RoomColorDetector {
         imageWidth: number,
     ): void {
         const roomBounds = option.candidate.bounds;
-        const seed = option.component.pixels[0];
-        // The chosen patch was found with every candidate colour as a barrier; in the final area it
-        // is the patch that contains the same seed pixel.
+        const chosen = this._findChosen(components, option);
+        if (!chosen) return;
+        chosen.pixels.forEach(index => {
+            const x = index % area.width;
+            const y = (index - x) / area.width;
+            const imageX = area.bounds.left + x;
+            const imageY = area.bounds.top + y;
+            const imageIndex = imageY * imageWidth + imageX;
+            const inside =
+                imageX >= roomBounds.left && imageX <= roomBounds.right && imageY >= roomBounds.top && imageY <= roomBounds.bottom;
+            const rank = area.distance[index] * 2 + (inside ? 0 : 1);
+            if (rank < priority[imageIndex]) {
+                labels[imageIndex] = label;
+                priority[imageIndex] = rank;
+            }
+        });
+    }
+
+    /**
+     * Adds the other patches of a room's colour that lie almost wholly inside its bounds (a room split
+     * by a wide obstacle). Written after every room's chosen patch, and only where nothing is
+     * labelled: a patch that touches another room's pixels or an undetected room's shape is that
+     * room's, not this one's (a same-coloured closet inside the room's bounding box).
+     */
+    private static _labelSecondary(
+        area: RoomArea,
+        components: ColorComponent[],
+        option: RoomOption,
+        label: number,
+        labels: Int16Array,
+        reserved: Uint8Array,
+        imageWidth: number,
+    ): void {
+        const chosen = this._findChosen(components, option);
         components.forEach(component => {
-            const isChosen = component === option.component || component.pixels.includes(seed);
-            if (!isChosen && (component.clipped || component.inside * 10 < component.pixels.length * 9)) return;
-            component.pixels.forEach(index => {
-                const x = index % area.width;
-                const y = (index - x) / area.width;
-                const imageX = area.bounds.left + x;
-                const imageY = area.bounds.top + y;
-                const imageIndex = imageY * imageWidth + imageX;
-                const inside =
-                    imageX >= roomBounds.left && imageX <= roomBounds.right && imageY >= roomBounds.top && imageY <= roomBounds.bottom;
-                const rank = area.distance[index] * 2 + (inside ? 0 : 1);
-                if (rank < priority[imageIndex]) {
-                    labels[imageIndex] = label;
-                    priority[imageIndex] = rank;
-                }
+            if (component === chosen || component.clipped || component.inside * 10 < component.pixels.length * 9) return;
+            const imageIndexes = component.pixels.map(index => this._toImageIndex(area, index, imageWidth));
+            if (imageIndexes.some(index => reserved[index] || (labels[index] >= 0 && labels[index] !== label))) return;
+            imageIndexes.forEach(index => {
+                if (labels[index] < 0) labels[index] = label;
             });
         });
     }
 
     /**
-     * Gives an unlabelled area that rooms enclose on every side (it does not reach the image edge)
-     * to the nearest enclosing room: the robot, a room icon or name, furniture, a no-go zone. The
-     * robot on a threshold is split between the two rooms it covers.
+     * The chosen patch in an area's components. The final area can differ from the one the patch was
+     * scored in (fewer colours are barriers once rooms are assigned); there it is the patch that
+     * contains the same seed pixel.
      */
-    private static _fillEnclosedAreas(labels: Int16Array, width: number, height: number): void {
+    private static _findChosen(components: ColorComponent[], option: RoomOption): ColorComponent | undefined {
+        if (components.includes(option.component)) return option.component;
+        const seed = option.component.pixels[0];
+        return components.find(component => component.pixels.includes(seed));
+    }
+
+    /** Marks the metadata shapes of rooms that were not detected. */
+    private static _reserve(entries: RoomEntry[], width: number, height: number): Uint8Array {
+        const reserved = new Uint8Array(width * height);
+        entries.forEach(entry => {
+            const { bounds, polygon } = entry;
+            for (let y = bounds.top; y <= bounds.bottom; y++) {
+                for (let x = bounds.left; x <= bounds.right; x++) {
+                    if (this._contains(polygon, x + 0.5, y + 0.5)) reserved[y * width + x] = 1;
+                }
+            }
+        });
+        return reserved;
+    }
+
+    private static _contains(polygon: PointType[], x: number, y: number): boolean {
+        let inside = false;
+        for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
+            const [xi, yi] = polygon[index];
+            const [xj, yj] = polygon[previous];
+            if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+        }
+        return inside;
+    }
+
+    /**
+     * Gives an unlabelled area that rooms enclose on every side (it does not reach the image edge)
+     * to the nearest enclosing room whose bounds contain it: the robot, a room icon or name,
+     * furniture, a no-go zone. Floor outside every room's bounds (an unsegmented hallway) stays
+     * unlabelled, and so does an undetected room's shape. The robot on a threshold is split between
+     * the two rooms it covers.
+     */
+    private static _fillEnclosedAreas(labels: Int16Array, width: number, height: number, grow: GrowLimits): void {
         const visited = new Uint8Array(labels.length);
         const queue = new Int32Array(labels.length);
         const limit = Math.max(ENCLOSED_AREA_LIMIT, Math.floor(labels.length * 0.002));
@@ -518,46 +750,64 @@ export class RoomColorDetector {
                 const x = index % width;
                 const y = (index - x) / width;
                 if (x === 0 || y === 0 || x === width - 1 || y === height - 1) open = true;
-                const neighbors = [index - 1, index + 1, index - width, index + width];
-                const valid = [x > 0, x < width - 1, y > 0, y < height - 1];
-                neighbors.forEach((neighbor, direction) => {
-                    if (!valid[direction] || visited[neighbor] || labels[neighbor] >= 0) return;
-                    visited[neighbor] = 1;
-                    queue[tail++] = neighbor;
-                });
+                if (x > 0 && !visited[index - 1] && labels[index - 1] < 0) {
+                    visited[index - 1] = 1;
+                    queue[tail++] = index - 1;
+                }
+                if (x < width - 1 && !visited[index + 1] && labels[index + 1] < 0) {
+                    visited[index + 1] = 1;
+                    queue[tail++] = index + 1;
+                }
+                if (y > 0 && !visited[index - width] && labels[index - width] < 0) {
+                    visited[index - width] = 1;
+                    queue[tail++] = index - width;
+                }
+                if (y < height - 1 && !visited[index + width] && labels[index + width] < 0) {
+                    visited[index + width] = 1;
+                    queue[tail++] = index + width;
+                }
             }
             if (open || tail > limit) continue;
-            this._growLabels(labels, width, height, queue.subarray(0, tail), Number.MAX_SAFE_INTEGER);
+            this._growLabels(labels, width, height, queue.subarray(0, tail), Number.MAX_SAFE_INTEGER, grow);
         }
     }
 
     /**
      * Lets a tap on something drawn at a room's edge reach the room: unlabelled pixels that are not
-     * the image background take the nearest room label within `TAP_REACH` pixels. The background is
-     * whatever covers the image border (a transparent or flat outside colour).
+     * the image background take the nearest room label within `TAP_REACH` pixels, inside that room's
+     * bounds. The background is the colour that dominates the image border (or transparency),
+     * matched with a tolerance so a lossy image's noise is still background.
      */
-    private static _extendTapReach(labels: Int16Array, imageData: ImageDataLike): void {
-        const { width, height, data } = imageData;
-        const backgroundKeys = this._backgroundKeys(imageData);
-        const pixelKey = (index: number): number =>
-            data[index * 4 + 3] < 128 ? -1 : this.getColorKey(data[index * 4], data[index * 4 + 1], data[index * 4 + 2]);
+    private static _extendTapReach(labels: Int16Array, imageData: ImageDataLike, grow: GrowLimits): void {
+        const { width, height } = imageData;
+        const isBackground = this._backgroundTest(imageData);
         const targets: number[] = [];
         for (let index = 0; index < labels.length; index++) {
-            if (labels[index] < 0 && !backgroundKeys.has(pixelKey(index))) targets.push(index);
+            if (labels[index] < 0 && !isBackground(index * 4)) targets.push(index);
         }
-        this._growLabels(labels, width, height, Int32Array.from(targets), TAP_REACH);
+        this._growLabels(labels, width, height, Int32Array.from(targets), TAP_REACH, grow);
     }
 
-    /** Colour keys (-1 for transparent) that make up at least a tenth of the image border. */
-    private static _backgroundKeys(imageData: ImageDataLike): Set<number> {
+    /**
+     * Whether a pixel is the image background: transparent, or within `BACKGROUND_TOLERANCE` per
+     * channel of a colour that covers at least a tenth of the image border. Border colours are
+     * grouped coarsely (16 levels per channel) so noise does not split them below that share.
+     */
+    private static _backgroundTest(imageData: ImageDataLike): (offset: number) => boolean {
         const { width, height, data } = imageData;
-        const counts = new Map<number, number>();
+        const groups = new Map<number, { count: number; red: number; green: number; blue: number }>();
         let total = 0;
         const count = (x: number, y: number): void => {
             const offset = (y * width + x) * 4;
-            const key = data[offset + 3] < 128 ? -1 : this.getColorKey(data[offset], data[offset + 1], data[offset + 2]);
-            counts.set(key, (counts.get(key) ?? 0) + 1);
             total++;
+            if (data[offset + 3] < 128) return;
+            const key = ((data[offset] >> 4) << 8) | ((data[offset + 1] >> 4) << 4) | (data[offset + 2] >> 4);
+            const group = groups.get(key) ?? { count: 0, red: 0, green: 0, blue: 0 };
+            group.count++;
+            group.red += data[offset];
+            group.green += data[offset + 1];
+            group.blue += data[offset + 2];
+            groups.set(key, group);
         };
         for (let x = 0; x < width; x++) {
             count(x, 0);
@@ -567,45 +817,72 @@ export class RoomColorDetector {
             count(0, y);
             count(width - 1, y);
         }
-        const keys = new Set<number>([-1]);
-        counts.forEach((value, key) => {
-            if (value * 10 >= total) keys.add(key);
+        const colors: Array<[number, number, number]> = [];
+        groups.forEach(group => {
+            if (group.count * 10 >= total) colors.push([group.red / group.count, group.green / group.count, group.blue / group.count]);
         });
-        return keys;
+        return (offset: number): boolean =>
+            data[offset + 3] < 128 ||
+            colors.some(
+                color =>
+                    Math.abs(data[offset] - color[0]) <= BACKGROUND_TOLERANCE &&
+                    Math.abs(data[offset + 1] - color[1]) <= BACKGROUND_TOLERANCE &&
+                    Math.abs(data[offset + 2] - color[2]) <= BACKGROUND_TOLERANCE,
+            );
     }
 
     /**
      * Multi-source breadth-first growth of room labels into `targets` (unlabelled pixels), up to
-     * `reach` steps (8-connected). Each target takes the label of the nearest room.
+     * `reach` steps (8-connected). Each target takes the label of the nearest room whose bounds
+     * contain it; reserved pixels (an undetected room's shape) are never taken.
      */
-    private static _growLabels(labels: Int16Array, width: number, height: number, targets: Int32Array, reach: number): void {
+    private static _growLabels(
+        labels: Int16Array,
+        width: number,
+        height: number,
+        targets: Int32Array,
+        reach: number,
+        grow: GrowLimits,
+    ): void {
         if (targets.length === 0) return;
         const isTarget = new Uint8Array(labels.length);
-        targets.forEach(index => (isTarget[index] = 1));
+        targets.forEach(index => {
+            if (!grow.reserved[index]) isTarget[index] = 1;
+        });
+        const canTake = (label: number, index: number): boolean => {
+            const bounds = grow.labelBounds[label];
+            const x = index % width;
+            const y = (index - x) / width;
+            return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
+        };
         let frontier: number[] = [];
+        const seen = new Uint8Array(labels.length);
         // Seed with labelled pixels that touch a target.
         targets.forEach(index => {
+            if (!isTarget[index]) return;
             const x = index % width;
             const y = (index - x) / width;
             for (let ny = Math.max(0, y - 1); ny <= Math.min(height - 1, y + 1); ny++) {
                 for (let nx = Math.max(0, x - 1); nx <= Math.min(width - 1, x + 1); nx++) {
                     const neighbor = ny * width + nx;
-                    if (labels[neighbor] >= 0 && !isTarget[neighbor]) frontier.push(neighbor);
+                    if (labels[neighbor] >= 0 && !isTarget[neighbor] && !seen[neighbor]) {
+                        seen[neighbor] = 1;
+                        frontier.push(neighbor);
+                    }
                 }
             }
         });
-        const seen = new Uint8Array(labels.length);
-        frontier = frontier.filter(index => (seen[index] ? false : (seen[index] = 1)));
         for (let step = 0; step < reach && frontier.length > 0; step++) {
             const next: number[] = [];
             frontier.forEach(index => {
+                const label = labels[index];
                 const x = index % width;
                 const y = (index - x) / width;
                 for (let ny = Math.max(0, y - 1); ny <= Math.min(height - 1, y + 1); ny++) {
                     for (let nx = Math.max(0, x - 1); nx <= Math.min(width - 1, x + 1); nx++) {
                         const neighbor = ny * width + nx;
-                        if (!isTarget[neighbor] || labels[neighbor] >= 0) continue;
-                        labels[neighbor] = labels[index];
+                        if (!isTarget[neighbor] || labels[neighbor] >= 0 || !canTake(label, neighbor)) continue;
+                        labels[neighbor] = label;
                         next.push(neighbor);
                     }
                 }
@@ -641,23 +918,7 @@ export class RoomColorDetector {
         let largestComponent = new Int32Array(0);
         for (let start = 0; start < mask.length; start++) {
             if (!mask[start] || visited[start]) continue;
-            let head = 0;
-            let tail = 0;
-            queue[tail++] = start;
-            visited[start] = 1;
-            while (head < tail) {
-                const index = queue[head++];
-                const x = index % width;
-                const y = (index - x) / width;
-                for (let neighborY = Math.max(0, y - 1); neighborY <= Math.min(height - 1, y + 1); neighborY++) {
-                    for (let neighborX = Math.max(0, x - 1); neighborX <= Math.min(width - 1, x + 1); neighborX++) {
-                        const neighbor = neighborY * width + neighborX;
-                        if (!mask[neighbor] || visited[neighbor]) continue;
-                        visited[neighbor] = 1;
-                        queue[tail++] = neighbor;
-                    }
-                }
-            }
+            const tail = this._floodFill8(mask, visited, width, height, start, queue);
             if (tail > largestComponent.length) largestComponent = queue.slice(0, tail);
         }
 
@@ -791,33 +1052,87 @@ export class RoomColorDetector {
         return best;
     }
 
-    /** Chebyshev (8-neighbour) distance to the nearest set pixel, capped at `cap`. */
+    /**
+     * Chebyshev (8-neighbour) distance to the nearest set pixel, capped at `cap` (at most 255). Two
+     * raster passes (a chamfer transform), which is exact for the chessboard metric.
+     */
     private static _chebyshevDistance(source: Uint8Array, width: number, height: number, cap: number): Uint8Array {
-        const distance = new Uint8Array(source.length).fill(cap);
-        const queue = new Int32Array(source.length);
-        let head = 0;
-        let tail = 0;
-        for (let index = 0; index < source.length; index++) {
-            if (!source[index]) continue;
-            distance[index] = 0;
-            queue[tail++] = index;
-        }
-        while (head < tail) {
-            const index = queue[head++];
-            const next = distance[index] + 1;
-            if (next >= cap) continue;
-            const x = index % width;
-            const y = (index - x) / width;
-            for (let neighborY = Math.max(0, y - 1); neighborY <= Math.min(height - 1, y + 1); neighborY++) {
-                for (let neighborX = Math.max(0, x - 1); neighborX <= Math.min(width - 1, x + 1); neighborX++) {
-                    const neighbor = neighborY * width + neighborX;
-                    if (distance[neighbor] <= next) continue;
-                    distance[neighbor] = next;
-                    queue[tail++] = neighbor;
+        const distance = new Uint8Array(source.length);
+        for (let y = 0; y < height; y++) {
+            const row = y * width;
+            for (let x = 0; x < width; x++) {
+                const index = row + x;
+                if (source[index]) continue;
+                let best = cap;
+                if (x > 0 && distance[index - 1] + 1 < best) best = distance[index - 1] + 1;
+                if (y > 0) {
+                    const above = index - width;
+                    if (distance[above] + 1 < best) best = distance[above] + 1;
+                    if (x > 0 && distance[above - 1] + 1 < best) best = distance[above - 1] + 1;
+                    if (x < width - 1 && distance[above + 1] + 1 < best) best = distance[above + 1] + 1;
                 }
+                distance[index] = best;
+            }
+        }
+        for (let y = height - 1; y >= 0; y--) {
+            const row = y * width;
+            for (let x = width - 1; x >= 0; x--) {
+                const index = row + x;
+                let best = distance[index];
+                if (best === 0) continue;
+                if (x < width - 1 && distance[index + 1] + 1 < best) best = distance[index + 1] + 1;
+                if (y < height - 1) {
+                    const below = index + width;
+                    if (distance[below] + 1 < best) best = distance[below] + 1;
+                    if (x > 0 && distance[below - 1] + 1 < best) best = distance[below - 1] + 1;
+                    if (x < width - 1 && distance[below + 1] + 1 < best) best = distance[below + 1] + 1;
+                }
+                distance[index] = best;
             }
         }
         return distance;
+    }
+
+    /**
+     * Flood-fills the 8-connected patch of `mask` that contains `start` into `queue` and marks it in
+     * `visited`. Returns the patch's size; its pixels are `queue[0..size)`.
+     */
+    private static _floodFill8(
+        mask: Uint8Array,
+        visited: Uint8Array,
+        width: number,
+        height: number,
+        start: number,
+        queue: Int32Array,
+    ): number {
+        const length = width * height;
+        let head = 0;
+        let tail = 0;
+        queue[tail++] = start;
+        visited[start] = 1;
+        while (head < tail) {
+            const index = queue[head++];
+            const x = index % width;
+            const hasLeft = x > 0;
+            const hasRight = x < width - 1;
+            for (let row = -1; row <= 1; row++) {
+                const centre = index + row * width;
+                if (centre < 0 || centre >= length) continue;
+                if (hasLeft && mask[centre - 1] && !visited[centre - 1]) {
+                    visited[centre - 1] = 1;
+                    queue[tail++] = centre - 1;
+                }
+                if (row !== 0 && mask[centre] && !visited[centre]) {
+                    visited[centre] = 1;
+                    queue[tail++] = centre;
+                }
+                if (hasRight && mask[centre + 1] && !visited[centre + 1]) {
+                    visited[centre + 1] = 1;
+                    queue[tail++] = centre + 1;
+                }
+            }
+        }
+        return tail;
     }
 
     private static _getOutline(

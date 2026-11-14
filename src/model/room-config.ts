@@ -52,31 +52,48 @@ export function roomMetadata<T = unknown>(value: unknown): Record<string, T> | u
     return value as Record<string, T>;
 }
 
+/** A metadata room's shape in vacuum coordinates, and whether it is only the room's bounds. */
+export interface MetadataRoomGeometry {
+    readonly outline: Array<[number, number]>;
+    /** True when the shape is the `x0`/`y0`/`x1`/`y1` rectangle rather than the room's own outline. */
+    readonly fromBounds: boolean;
+}
+
 /**
- * A metadata room's outline in vacuum coordinates: its own `outline` when that is a list of at
- * least three numeric points, else its `x0`/`y0`/`x1`/`y1` bounds as a rectangle, else
- * `undefined` for an entry that is not a usable room (null, a string, non-numeric values).
+ * A metadata room's shape in vacuum coordinates: its own `outline` when that is a list of at least
+ * three numeric points, else its `x0`/`y0`/`x1`/`y1` bounds as a rectangle (also when the outline
+ * is malformed), else `undefined` for an entry that is not a usable room (null, a string,
+ * non-numeric values).
  */
-export function metadataRoomOutline(room: unknown): Array<[number, number]> | undefined {
+export function metadataRoomGeometry(room: unknown): MetadataRoomGeometry | undefined {
     if (!room || typeof room !== "object") return undefined;
     const entry = room as Record<string, unknown>;
-    if (entry.outline !== undefined && entry.outline !== null) {
-        const outline = entry.outline;
-        if (!Array.isArray(outline) || outline.length < 3) return undefined;
+    const outline = entry.outline;
+    if (Array.isArray(outline) && outline.length >= 3) {
         const points = outline.filter(
             (point): point is [number, number] =>
                 Array.isArray(point) && point.length >= 2 && isFiniteNumber(point[0]) && isFiniteNumber(point[1]),
         );
-        return points.length === outline.length ? points.map(point => [point[0], point[1]]) : undefined;
+        if (points.length === outline.length) {
+            return { outline: points.map(point => [point[0], point[1]]), fromBounds: false };
+        }
     }
     const { x0, y0, x1, y1 } = entry;
     if (!isFiniteNumber(x0) || !isFiniteNumber(y0) || !isFiniteNumber(x1) || !isFiniteNumber(y1)) return undefined;
-    return [
-        [x0, y0],
-        [x1, y0],
-        [x1, y1],
-        [x0, y1],
-    ];
+    return {
+        outline: [
+            [x0, y0],
+            [x1, y0],
+            [x1, y1],
+            [x0, y1],
+        ],
+        fromBounds: true,
+    };
+}
+
+/** `metadataRoomGeometry`'s outline: the room's own outline or its bounds rectangle. */
+export function metadataRoomOutline(room: unknown): Array<[number, number]> | undefined {
+    return metadataRoomGeometry(room)?.outline;
 }
 
 function isFiniteNumber(value: unknown): value is number {

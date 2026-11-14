@@ -91,16 +91,22 @@
   service it calls.
 - Rooms that share a fill colour are all detected. Valetudo and Dreame colour rooms from a
   four-colour palette, and Xiaomi Cloud Map Extractor's default palette repeats colours, so only
-  one room per colour was drawn and selectable from the map before.
+  one room per colour was drawn and selectable from the map before. A room never extends into
+  another room's area, so a narrow room or a closet next to a same-coloured room keeps its own
+  taps.
 - Tapping the robot, the charger, a room icon or name, furniture or a no-go zone drawn over a room
   selects that room, including the robot on a doorway between two rooms and the docked robot at
   a wall. Taps on the map's background still select nothing.
 - The room name and order badge of an L- or U-shaped room are drawn on the room, not on the
   neighbouring room or the space inside its bend.
 - A room the map colours did not reveal no longer takes taps meant for a detected room its outline
-  overlaps.
+  overlaps, and a detected room no longer takes taps meant for it.
+- While the vacuum cleans, a newer map snapshot of the same rooms reuses the room detection
+  instead of tracing every room again.
 - Room metadata the card cannot use (a `null` or text entry, an outline that is not a list of
-  points, a `rooms` attribute that is not an object) is skipped instead of breaking the card.
+  points, a `rooms` attribute that is not an object) is skipped instead of breaking the card. A
+  room with a broken outline but usable bounds uses its bounds, and a configured room whose
+  metadata entry is unusable keeps its configured outline.
 
 ## 1.0.7
 
