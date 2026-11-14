@@ -419,6 +419,7 @@ sensor whose display unit was changed in Home Assistant still shows the right nu
 | `run_immediately`       | boolean | no              | `false` | Enables calling service immediately after choosing a selection                       |
 | `coordinates_rounding`  | boolean | no              | `true`  | Enables coordinates rounding                                                         |
 | `max_selections`        | integer | no              | 1       | Maximal number of selections                                                         |
+| `id_type`               | string  | no              | -       | `number` or `string`: the type room ids are sent as in a `ROOM` mode<sup>4</sup>      |
 | `repeats_type`          | string  | no              | `NONE`  | Type of repeats inclusion, one of [supported ones](#supported-repeats-types)         |
 | `max_repeats`           | integer | no              | 1       | Maximal value of repeats                                                             |
 | `variables`             | object  | no              | -       | Variables that should be passed to `service_call_schema`                             |
@@ -432,6 +433,10 @@ sensor whose display unit was changed in Home Assistant still shows the right nu
 
 <sup>3</sup> Required if `template` is not provided and `selection_type` is one
 of: `PREDEFINED_RECTANGLE`, `PREDEFINED_POINT`. `ROOM` selections can be read automatically from the map camera's `rooms` attribute.
+
+<sup>4</sup> Room ids read from the camera's `rooms` attribute are strings (`"13"`), configured ids are
+usually numbers. `id_type: number` sends a numeric id as a number and `id_type: string` sends every id
+as a string; without it the id is sent as it was read. Templates set it where the integration needs it.
 
 ### Supported templates
 
@@ -500,8 +505,8 @@ It is possible to use several built-in placeholders in `service_data` section. T
 - `[[selection_size]]`: number of selections made on the map
 - `[[selection_unwrapped]]`: the same as `[[selection]]`, but passed as string unwrapped from brackets
 - `[[repeats]]`: selected number of repeats
-- `[[point_x]]`: x coordinate of selected point (for `MANUAL_POINT` and `PREDEFINED_POINT` selection types)
-- `[[point_y]]`: y coordinate of selected point (for `MANUAL_POINT` and `PREDEFINED_POINT` selection types)
+- `[[point_x]]`: x coordinate of selected point (for `MANUAL_POINT` and `PREDEFINED_POINT` selection types, also with `INTERNAL` repeats)
+- `[[point_y]]`: y coordinate of selected point (for `MANUAL_POINT` and `PREDEFINED_POINT` selection types, also with `INTERNAL` repeats)
 - `[[variables]]`: a list of variables for all selections
 
 It is possible to use any value from `variables` section (wrapped with double rectangular brackets):
@@ -520,6 +525,12 @@ It is possible to use following modifiers in `service_data` section:
 - `|[[jsonify]]`: if value ends with this modifier it will be decoded as a JSON and attached to service call in
   unwrapped form
 - `|[[jsonify_jinja]]`: behaves in the same way as `|[[jsonify]]`, but is executed after jinja templating
+
+With `evaluate_data_as_template`, the whole `service_data` is rendered by Home Assistant as one
+template. Write the Jinja code inside `{{ }}` and `{% %}` as you would in Home Assistant: a placeholder
+such as `[[selection]]` can be used directly in it (`{{ [[selection]] | length }}`) or inside a quoted
+string (`'[[selection]]' | from_json`), with string or number room ids. If Home Assistant reports a
+template error, the card shows it and sends nothing.
 
 ### Supported repeats types
 

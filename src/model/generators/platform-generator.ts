@@ -66,7 +66,7 @@ export class PlatformGenerator {
         [PlatformGenerator.RAND256_VALETUDO_RE_PLATFORM, rand256ValetudoReTemplate as PlatformTemplate],
         [PlatformGenerator.TASSHACK_DREAME_VACUUM_PLATFORM, tasshackDreameVacuumTemplate as PlatformTemplate],
         [PlatformGenerator.HUMBERTOGONTIJO_ROBOROCK_PLATFORM, roborockTemplate as PlatformTemplate],
-        [PlatformGenerator.SEND_COMMAND_PLATFORM, sendCommandTemplate],
+        [PlatformGenerator.SEND_COMMAND_PLATFORM, sendCommandTemplate as PlatformTemplate],
         [PlatformGenerator.ALONE_XIAOMI_MIOT_PLATFORM, alOneHassXiaomiMiotTemplate],
         [PlatformGenerator.JOHNNYH1975_ROOMBA_PLUS, johnnyh1975RoombaPlus],
         [PlatformGenerator.NEATO_PLATFORM, neatoTemplate],
@@ -147,6 +147,10 @@ export class PlatformGenerator {
             template !== undefined &&
             Object.keys(this.getPlatformTemplate(platform).map_modes.templates).includes(template)
         );
+    }
+
+    public static getModeTemplateNames(platform: string): string[] {
+        return Object.keys(this.getPlatformTemplate(platform).map_modes.templates);
     }
 
     public static getModeTemplate(platform: string, template: string): MapModeConfig {

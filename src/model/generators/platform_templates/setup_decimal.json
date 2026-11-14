@@ -17,7 +17,8 @@
                 "service_call_schema": {
                     "service": "persistent_notification.create",
                     "service_data": {
-                        "zones": "[[selection]]"
+                        "title": "Zone coordinates",
+                        "message": "Zones: [[selection]]"
                     }
                 }
             },
@@ -31,9 +32,8 @@
                 "service_call_schema": {
                     "service": "persistent_notification.create",
                     "service_data": {
-                        "x_coord": "[[point_x]]",
-                        "y_coord": "[[point_y]]",
-                        "point": "[[selection]]"
+                        "title": "Point coordinates",
+                        "message": "Point: [[selection]] (x: [[point_x]], y: [[point_y]])"
                     }
                 }
             },
@@ -47,7 +47,8 @@
                 "service_call_schema": {
                     "service": "persistent_notification.create",
                     "service_data": {
-                        "path": "[[selection]]"
+                        "title": "Outline coordinates",
+                        "message": "Outline: [[selection]]"
                     }
                 }
             }

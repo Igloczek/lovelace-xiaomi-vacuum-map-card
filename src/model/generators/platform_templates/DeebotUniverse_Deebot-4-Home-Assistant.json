@@ -8,6 +8,7 @@
                 "name": "map_mode.vacuum_clean_segment",
                 "icon": "mdi:floor-plan",
                 "selection_type": "ROOM",
+                "id_type": "number",
                 "repeats_type": "EXTERNAL",
                 "max_repeats": 2,
                 "service_call_schema": {
@@ -16,7 +17,7 @@
                         "entity_id": "[[entity_id]]",
                         "command": "spot_area",
                         "params": {
-                            "rooms": "[[selection_unwrapped]]",
+                            "rooms": "[[selection]]",
                             "cleanings": "[[repeats]]"
                         }
                     }
@@ -36,7 +37,7 @@
                         "entity_id": "[[entity_id]]",
                         "command": "custom_area",
                         "params": {
-                            "coordinates": "[[selection_unwrapped]]"
+                            "coordinates": "[ [[selection_unwrapped]] ]|[[jsonify]]"
                         }
                     }
                 }
@@ -55,7 +56,7 @@
                         "entity_id": "[[entity_id]]",
                         "command": "custom_area",
                         "params": {
-                            "coordinates": "[[selection_unwrapped]]"
+                            "coordinates": "[ [[selection_unwrapped]] ]|[[jsonify]]"
                         }
                     }
                 }

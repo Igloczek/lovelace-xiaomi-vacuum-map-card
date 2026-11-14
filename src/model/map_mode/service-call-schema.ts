@@ -51,6 +51,7 @@ export class ServiceCallSchema {
     }
 
     private static isPoint(selection: unknown[]): boolean {
-        return typeof selection[0] === "number" && selection.length == 2;
+        // `[x, y]`, or `[x, y, repeats]` when a point mode has INTERNAL repeats.
+        return typeof selection[0] === "number" && typeof selection[1] === "number" && (selection.length == 2 || selection.length == 3);
     }
 }

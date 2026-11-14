@@ -15,7 +15,6 @@ import { SelectionType } from "../model/map_mode/selection-type";
 import { RepeatsType } from "../model/map_mode/repeats-type";
 import { MapObject } from "../model/map_objects/map-object";
 import type { XiaomiVacuumMapCard } from "../xiaomi-vacuum-map-card";
-import { adjustRoomId } from "./rooms";
 import { calculateBasicScale } from "./map-view";
 import { dismissActiveRoomRun } from "./active-run";
 import { getActiveRoomOrder } from "./active-run";
@@ -25,7 +24,7 @@ import { getStaleRoomIds } from "./rooms";
 import { captureSelection, restoreSelection, SelectionSnapshot } from "../model/selection-rebuild";
 import { getWatchedEntitiesForMapMode } from "../utils";
 import { isCameraRoomsKnown, isEntitySourceKnown } from "../model/source-availability";
-import { runSelection } from "./run";
+import { callServiceReported, runSelection } from "./run";
 
 export function createContext(card: XiaomiVacuumMapCard): Context {
     return new Context(
@@ -46,7 +45,7 @@ export function createContext(card: XiaomiVacuumMapCard): Context {
         () => runImmediately(card),
         string => card._localize(string),
         entity => card._hass.states[entity].state,
-        entity => card._hass.callService("homeassistant", "toggle", {"entity_id": entity}),
+        entity => void callServiceReported(card, "homeassistant", "toggle", { entity_id: entity }),
         () => getActiveRoomOrder(card),
         () => getActiveRoomOrder(card).length > 0 && card.activeRoomRun?.seenActive === true,
         () => dismissActiveRoomRun(card),
@@ -284,12 +283,11 @@ export function getSelection(card: XiaomiVacuumMapCard, mode: MapMode | undefine
             break;
         case SelectionType.ROOM:
             const usableRooms = getUsableSelectedRooms(card, mode);
-            const selectedRooms = usableRooms
-                .map(r => r.toVacuum())
-                .map(r => adjustRoomId(r, mode));
-            selection = [...selectedRooms, ...(repeats && selectedRooms.length > 0 ? [repeats] : [])];
-            variables = variablesExtractor(usableRooms);
-            break;
+            // `getRoomSelection` also applies REPEAT, so it returns before the generic step below.
+            return {
+                selection: mode.getRoomSelection(usableRooms.map(r => r.toVacuum()), card.repeats),
+                variables: variablesExtractor(usableRooms),
+            };
         case SelectionType.MANUAL_PATH:
             selection = card.selectedManualPath.toVacuum(repeats);
             variables = card.selectedManualPath.variables ?? {};
@@ -306,12 +304,7 @@ export function getSelection(card: XiaomiVacuumMapCard, mode: MapMode | undefine
             variables = variablesExtractor(card.selectedPredefinedPoints);
             break;
     }
-    if (mode.repeatsType === RepeatsType.REPEAT) {
-        selection = Array(card.repeats)
-            .fill(0)
-            .flatMap(() => selection);
-    }
-    return { selection, variables };
+    return { selection: mode.repeatSelection(selection, card.repeats), variables };
 }
 
 export async function runImmediately(card: XiaomiVacuumMapCard): Promise<boolean> {

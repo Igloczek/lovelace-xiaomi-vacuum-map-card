@@ -92,6 +92,40 @@ export class MapMode {
         return serviceCall;
     }
 
+    /**
+     * A room id in the type this mode's service expects. Camera `rooms` metadata ids are strings
+     * ("13") while configured ids are usually numbers, so `id_type: number` sends a numeric id as a
+     * number and `id_type: string` sends any id as a string. Without `id_type` the id is unchanged.
+     */
+    public toServiceRoomId(roomId: string | number): string | number {
+        if (this.idType === "number") {
+            const roomIdAsNumber = typeof roomId === "string" && roomId.trim() === "" ? NaN : +roomId;
+            return isNaN(roomIdAsNumber) ? roomId : roomIdAsNumber;
+        }
+        if (this.idType === "string") {
+            return String(roomId);
+        }
+        return roomId;
+    }
+
+    /**
+     * The ROOM selection sent to the service: the room ids in click order, converted with
+     * `toServiceRoomId`, followed by the repeats for `INTERNAL` repeats and repeated for `REPEAT`.
+     */
+    public getRoomSelection(roomIds: Array<string | number>, repeats: number): unknown[] {
+        const ids = roomIds.map(id => this.toServiceRoomId(id));
+        const internal = this.repeatsType === RepeatsType.INTERNAL && ids.length > 0 ? [repeats] : [];
+        return this.repeatSelection([...ids, ...internal], repeats);
+    }
+
+    /** `REPEAT` repeats the whole selection: repeats 2 and `[5, 6]` give `[5, 6, 5, 6]`. */
+    public repeatSelection(selection: unknown[], repeats: number): unknown[] {
+        if (this.repeatsType !== RepeatsType.REPEAT) return selection;
+        return Array(Math.max(1, repeats))
+            .fill(0)
+            .flatMap(() => selection);
+    }
+
     public toMapModeConfig(): MapModeConfig {
         return {
             name: this.name,

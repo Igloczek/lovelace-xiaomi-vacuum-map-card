@@ -58,6 +58,28 @@
   no longer breaks the map or uses list positions as room ids.
 - The editor opens on frontends without card helpers, and clearing the camera field no longer
   throws.
+- A templated service call (`evaluate_data_as_template`) works again with a selection inside a quoted
+  Jinja string, such as `'[[selection]]' | from_json`. The Roomba room mode and the Valetudo RE saved
+  zone mode failed with a template syntax error since 1.0.2.
+- A service call that Home Assistant rejects keeps the selection and shows the error. Before, the
+  selection was cleared before Home Assistant answered, and a second tap could send the run twice.
+- Preset activation, the switch behind a selection's `state_entity`, and icon and tile service
+  actions show an error when Home Assistant rejects them, instead of failing silently.
+- Icon and tile actions written as `perform-action` (Home Assistant's current format) are performed;
+  only `call-service` worked before.
+- Valetudo's predefined go-to point sends its coordinates as numbers; Valetudo rejected the strings.
+- The Deebot templates send room ids and zone coordinates as lists, as Home Assistant's Ecovacs
+  integration requires since 2026.3; a `"13,14"` string was split into single characters.
+- The `send_command` room mode sends room ids read from the camera as numbers.
+- The setup platforms' run button creates a notification with the coordinates; Home Assistant
+  rejected the call before.
+- `[[point_x]]` and `[[point_y]]` are filled for a point mode with `INTERNAL` repeats.
+- `id_type: string` sends room ids as strings; it had no effect.
+
+### Documentation
+
+- `id_type` and Jinja templates in `service_call_schema` are documented, and the Deebot page names the
+  service it calls.
 
 ## 1.0.7
 
