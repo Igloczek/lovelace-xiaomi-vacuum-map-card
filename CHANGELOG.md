@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A zoomed map keeps showing the same place when the card changes width: after a window resize,
+  a phone rotation or a sections-view column change, and when a remembered view is reopened at
+  another width. Before, the saved position was in screen pixels and could leave mostly empty
+  space in view.
+- A camera that updates faster than its map image downloads (a slow mobile connection, a chatty
+  camera) no longer keeps the map from drawing: the card lets the current image finish loading,
+  for at most five seconds, then fetches the newest one.
+- A card that renders while Home Assistant has it detached keeps its map image instead of
+  switching to the "disconnected" placeholder.
+
 ## 1.0.7
 
 ### Fixed

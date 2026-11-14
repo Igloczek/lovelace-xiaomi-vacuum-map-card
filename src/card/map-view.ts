@@ -4,7 +4,15 @@ import { forwardHaptic } from "custom-card-helpers";
 import type { XiaomiVacuumMapCardConfig } from "../types/types";
 import { CalibrationPoint, CardPresetConfig } from "../types/types";
 import { MAP_ROTATION_SNAP_THRESHOLD, MAP_ROTATION_STEP, MAP_VIEW_ID_ATTRIBUTES, MAP_VIEW_SAVE_DEBOUNCE } from "../const";
-import { getMapView, hashString, MapView, normalizeAngle, resolveMapView, setMapView } from "../model/map-view-store";
+import {
+    fitMapViewToWidth,
+    getMapView,
+    hashString,
+    MapView,
+    normalizeAngle,
+    resolveMapView,
+    setMapView,
+} from "../model/map-view-store";
 import { RotateEventDetail } from "../pinch-zoom/pinch-zoom";
 import { calculateRealScale } from "../model/map-scale";
 import type { XiaomiVacuumMapCard } from "../xiaomi-vacuum-map-card";
@@ -185,8 +193,40 @@ export function updateMapResizeObserver(card: XiaomiVacuumMapCard): void {
         if (image?.naturalWidth) {
             calculateBasicScale(card);
         }
+        fitMapViewToLayoutWidth(card);
     });
     card.mapResizeObserver.observe(mapCanvas);
+}
+
+/**
+ * Keeps the same part of the map in view when the card changes width.
+ *
+ * The pinch-zoom offsets are CSS pixels while the map content scales with the card, so after a
+ * sections-view resize, a window resize or a phone rotation the unchanged offsets framed a
+ * different part of the map — or, zoomed in, mostly empty space. Scaling the offsets by the width
+ * ratio keeps the map point in the middle of the viewport where it was. A zero width (a hidden
+ * view) is not recorded, so the next visible layout scales from the last real width.
+ */
+export function fitMapViewToLayoutWidth(card: XiaomiVacuumMapCard): void {
+    const width = card._getMapZoomerContent()?.offsetWidth ?? 0;
+    const pinchZoom = card._getPinchZoom();
+    if (!width || !pinchZoom) {
+        return;
+    }
+    const previous = card.mapViewLayoutWidth;
+    card.mapViewLayoutWidth = width;
+    if (!previous || previous === width || (pinchZoom.x === 0 && pinchZoom.y === 0)) {
+        return;
+    }
+    const fitted = fitMapViewToWidth(
+        { scale: pinchZoom.scale, x: pinchZoom.x, y: pinchZoom.y, rotation: card.mapRotation, width: previous },
+        width,
+    );
+    pinchZoom.setTransform({ scale: fitted.scale, x: fitted.x, y: fitted.y, allowChangeEvent: false });
+    card.mapScale = pinchZoom.scale;
+    card.mapX = pinchZoom.x;
+    card.mapY = pinchZoom.y;
+    persistMapView(card);
 }
 
 export function calculateScale(card: XiaomiVacuumMapCard): void {
@@ -442,11 +482,15 @@ export function restoreMapView(card: XiaomiVacuumMapCard): void {
     if (!view) {
         // A later key change with nothing stored for it keeps the current view, which is exactly
         // the pre-B9 behaviour when no default is configured.
+        card.mapViewLayoutWidth = zoomerContent.offsetWidth || card.mapViewLayoutWidth;
         return;
     }
-    // Stored offsets are already pinch-zoom transform values; a configured view states its
-    // offsets from the centred view and has to be converted first.
-    const transformView = stored ? view : centreConfiguredView(card, view);
+    // Stored offsets are already pinch-zoom transform values, measured at the width saved with
+    // them; a configured view states its offsets from the centred view and has to be converted.
+    card.mapViewLayoutWidth = zoomerContent.offsetWidth || card.mapViewLayoutWidth;
+    const transformView = stored
+        ? fitMapViewToWidth(view, zoomerContent.offsetWidth)
+        : centreConfiguredView(card, view);
     if (isMapLockPersistenceEnabled(card) && typeof view.locked === "boolean") {
         card.mapLocked = view.locked;
     }
@@ -483,6 +527,7 @@ export function persistMapView(card: XiaomiVacuumMapCard): void {
         y: pinchZoom.y,
         rotation: card.mapRotation,
         locked: isMapLockPersistenceEnabled(card) ? card.mapLocked : undefined,
+        width: card._getMapZoomerContent()?.offsetWidth || card.mapViewLayoutWidth,
     };
     if (card.mapViewSaveTimer) {
         clearTimeout(card.mapViewSaveTimer);

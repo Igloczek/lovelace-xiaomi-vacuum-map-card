@@ -65,6 +65,11 @@ export interface MapRefreshInput {
     intervalMs?: number;
     /** `document.hidden` at the time of the decision. */
     hidden: boolean;
+    /**
+     * Clock time at which the snapshot for `previous.version` started loading, while it has not
+     * finished (no `load` or `error` yet); `undefined` once it has.
+     */
+    loadingSince?: number;
 }
 
 /**
@@ -124,6 +129,7 @@ function unchanged(previous: MapRefreshState): MapRefreshDecision {
  * | ---      | ---    | ---                     | ---              | ---       |
  * | none     | any    | -                       | -                | refresh   |
  * | any      | yes    | any                     | any              | unchanged |
+ * | any      | no     | yes, snapshot loading   | no               | unchanged |
  * | any      | no     | yes                     | any              | refresh   |
  * | any      | no     | no                      | yes              | refresh   |
  * | any      | no     | no                      | no               | unchanged |
@@ -131,6 +137,12 @@ function unchanged(previous: MapRefreshState): MapRefreshDecision {
  * A hidden document freezes the version, even when the camera changed, so a dashboard in a
  * background tab does not keep polling the camera. The frozen state is what lets the first visible
  * decision notice the camera change or the elapsed interval afterwards.
+ *
+ * A camera change for the same camera waits while the current snapshot is still loading, for at
+ * most one interval. Replacing an image's src aborts its download, so a camera that changes faster
+ * than its snapshot downloads (a slow mobile link, a chatty camera) never finished a single load
+ * and the map never drew. The caller re-decides when the load ends, which fetches the newest state
+ * once instead of one request per held change.
  */
 export function decideMapRefresh(input: MapRefreshInput): MapRefreshDecision {
     const { previous, hidden } = input;
@@ -145,10 +157,15 @@ export function decideMapRefresh(input: MapRefreshInput): MapRefreshDecision {
     if (hidden) {
         return unchanged(previous);
     }
+    const intervalMs = input.intervalMs ?? MAP_REFRESH_INTERVAL_MS;
     if (cameraKey !== previous.cameraKey) {
+        const sameCamera = previous.cameraKey.split("|")[0] === (input.camera?.cameraId ?? "");
+        const loading = input.loadingSince !== undefined && now - input.loadingSince < intervalMs;
+        if (sameCamera && loading) {
+            return unchanged(previous);
+        }
         return refresh(cameraKey, now, input.camera, previous);
     }
-    const intervalMs = input.intervalMs ?? MAP_REFRESH_INTERVAL_MS;
     if (now - previous.at >= intervalMs) {
         return refresh(cameraKey, now, input.camera, previous);
     }

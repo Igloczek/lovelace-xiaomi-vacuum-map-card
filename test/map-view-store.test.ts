@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getMapView, MapView, resolveMapView, setMapView } from "../src/model/map-view-store";
+import { fitMapViewToWidth, getMapView, MapView, resolveMapView, setMapView } from "../src/model/map-view-store";
 
 const NEUTRAL: MapView = { scale: 1, x: 0, y: 0, rotation: 90 };
 
@@ -54,5 +54,33 @@ describe("map view storage", () => {
 
     it("returns undefined with neither a stored view nor a default, so the neutral view stands", () => {
         expect(resolveMapView(undefined, undefined, NEUTRAL)).toBeUndefined();
+    });
+
+    it("stores the content width a view was taken at and reads it back", () => {
+        setMapView("card|0|camera.map|w", { scale: 2, x: -100, y: -40, rotation: 0, width: 800 });
+        expect(getMapView("card|0|camera.map|w")?.width).toBe(800);
+    });
+
+    it("reads an entry saved before widths were recorded without a width", () => {
+        window.localStorage.setItem(
+            "xiaomi-vacuum-map-card.map-view",
+            JSON.stringify({ old: { s: 2, x: -100, y: -40, r: 0, ts: 1 } }),
+        );
+        expect(getMapView("old")).toEqual({ scale: 2, x: -100, y: -40, rotation: 0, locked: undefined, width: undefined });
+    });
+});
+
+describe("fitMapViewToWidth", () => {
+    it("scales pixel offsets by the width ratio and keeps scale and rotation", () => {
+        const view: MapView = { scale: 2.5, x: -800, y: -300, rotation: 90, width: 800 };
+        expect(fitMapViewToWidth(view, 400)).toEqual({ scale: 2.5, x: -400, y: -150, rotation: 90, width: 400 });
+    });
+
+    it("leaves a view without a recorded width, or with no usable current width, unchanged", () => {
+        const legacy: MapView = { scale: 2, x: -10, y: -20, rotation: 0 };
+        expect(fitMapViewToWidth(legacy, 400)).toBe(legacy);
+        const view: MapView = { ...legacy, width: 800 };
+        expect(fitMapViewToWidth(view, 0)).toBe(view);
+        expect(fitMapViewToWidth(view, Number.NaN)).toBe(view);
     });
 });

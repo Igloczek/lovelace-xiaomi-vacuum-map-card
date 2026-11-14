@@ -118,6 +118,9 @@ describe("map refresh policy in the card", () => {
 
     it("changes the map src exactly once for one camera state change", async () => {
         const { card, clock, cameraId } = await mountRefreshingCard();
+        // The mount snapshot has loaded, as it has in a browser a second after mount; a change while
+        // it is still loading waits for it (see the slow-download test below).
+        await card.fireMapLoad();
         const tracker = trackSrc(card);
         const camera = card.hass.states[cameraId];
         const next = withState(card.hass, cameraId, {
@@ -296,6 +299,66 @@ describe("map refresh policy in the card", () => {
         await clock.advance(120000);
         elapsed += 120000;
         tracker.check(elapsed);
+        expect(tracker.count).toBe(2);
+    });
+
+    it("lets a snapshot finish loading before a faster camera replaces it, then fetches the newest", async () => {
+        const { card, clock, cameraId } = await mountRefreshingCard();
+        await card.fireMapLoad();
+        const tracker = trackSrc(card);
+        let elapsed = 0;
+        const cameraUpdate = (index: number): MockHass =>
+            withState(card.hass, cameraId, {
+                last_updated: new Date(Date.parse("2026-11-01T10:00:00.000Z") + index * 1000).toISOString(),
+            }).hass;
+
+        // The first camera change fetches a snapshot at once.
+        await clock.advance(500);
+        elapsed += 500;
+        let hass = cameraUpdate(1);
+        await applyHass(card, hass);
+        tracker.check(elapsed);
+        expect(tracker.count).toBe(1);
+
+        // The camera keeps changing every second while that snapshot downloads slowly. Replacing
+        // the src aborts the download, so the map would never draw; the URL waits for the load.
+        for (let index = 2; index <= 4; index++) {
+            await clock.advance(1000);
+            elapsed += 1000;
+            hass = cameraUpdate(index);
+            await applyHass(card, hass);
+            tracker.check(elapsed);
+        }
+        expect(tracker.count).toBe(1);
+
+        // Once it has loaded, the newest camera state is fetched without waiting for another update.
+        await card.fireMapLoad();
+        await clock.advance(10);
+        elapsed += 10;
+        tracker.check(elapsed);
+        expect(tracker.count).toBe(2);
+        // And only once: the newest state is fetched, not one request per held update.
+        await clock.advance(1000);
+        tracker.check(elapsed + 1000);
+        expect(tracker.count).toBe(2);
+    });
+
+    it("does not wait longer than the interval for a snapshot that never loads", async () => {
+        const { card, clock, cameraId } = await mountRefreshingCard();
+        await card.fireMapLoad();
+        const tracker = trackSrc(card);
+        await clock.advance(500);
+        await applyHass(card, withState(card.hass, cameraId, { last_updated: "2026-11-01T10:00:01.000Z" }).hass);
+        tracker.check(500);
+        await clock.advance(1000);
+        await applyHass(card, withState(card.hass, cameraId, { last_updated: "2026-11-01T10:00:02.000Z" }).hass);
+        tracker.check(1500);
+        expect(tracker.count).toBe(1);
+
+        // No load and no error ever arrives (a stalled request): the held change goes out when the
+        // interval ends, so a stuck download cannot freeze the map.
+        await clock.advance(MAP_REFRESH_INTERVAL_MS);
+        tracker.check(1500 + MAP_REFRESH_INTERVAL_MS);
         expect(tracker.count).toBe(2);
     });
 
