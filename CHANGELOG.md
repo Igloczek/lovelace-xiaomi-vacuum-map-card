@@ -13,9 +13,13 @@
   unavailable keeps the mode and the selection.
 ### Changed
 
-- Rooms are numbered only where the platform makes the vacuum follow the order: Valetudo,
-  ValetudoRE and roomba_plus. Elsewhere, including Xiaomi Miio, Roborock, Dreame and Viomi, selected
-  rooms are highlighted without numbers. A ROOM map mode can set `cleaning_order: true` or `false`.
+- Rooms are numbered only where the integration makes the vacuum clean them in the order they
+  are sent: Valetudo, ValetudoRE (segments) and roomba_plus. On every other platform, including
+  Xiaomi Miio, Roborock, Dreame and Viomi, and in modes with their own service call, the vacuum
+  chooses its own route, so the selected rooms are highlighted without numbers. Set
+  `cleaning_order: true` on a ROOM map mode to show the numbers anyway (it does not change the
+  order the vacuum cleans in), or `false` to hide them. See
+  [cleaning order per platform](docs/platforms.md#cleaning-order-per-platform).
 - A run is no longer locked while the vacuum is paused or `unavailable`; a tap starts a new
   selection.
 

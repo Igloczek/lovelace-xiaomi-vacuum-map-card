@@ -255,14 +255,19 @@ For `ROOM` selections, the card can use room IDs and names from the camera's `ro
 
 #### Cleaning order
 
-Rooms are sent in the order you tap them. Where the platform makes the vacuum follow that order,
-each selected room shows its number; elsewhere the selected rooms are highlighted without numbers,
-because a number would promise an order the vacuum does not keep. The
-[platform list](platforms.md#cleaning-order-per-platform) says which templates number the rooms.
-Set `cleaning_order: true` on a ROOM map mode when your own service call makes the vacuum follow
-the order, or `false` to turn the numbers off.
+Rooms are sent in the order you tap them. Only some integrations make the vacuum clean them in
+that order, and the card numbers the selected rooms only on those: `Hypfer/Valetudo`,
+`rand256/ValetudoRE` (segments) and `johnnyh1975/ha_roomba_plus`. On every other platform, and in
+any mode with its own `service_call_schema`, the vacuum chooses its own route, so the selected
+rooms are highlighted without numbers. The [platform list](platforms.md#cleaning-order-per-platform)
+gives the reason for each.
 
-After **Start** the rooms stay highlighted, numbers included, exactly as they were selected. The
+If your vacuum does follow the order sent (for example your own service call asks for it), set
+`cleaning_order: true` on the ROOM map mode to show the numbers. The setting only controls the
+numbers; it does not make a vacuum follow the order. `cleaning_order: false` hides them on the
+platforms that number by default.
+
+After **Start** the rooms stay highlighted exactly as they were selected, with their numbers where they are shown. The
 run is on the map from the moment the call is sent; if the call fails, it is removed and the
 selection comes back so you can retry. While the vacuum works through the run (`cleaning` or
 `returning`) the rooms are locked, so the order cannot change mid-run. Before the vacuum reports
@@ -438,7 +443,7 @@ sensor whose display unit was changed in Home Assistant still shows the right nu
 | `coordinates_rounding`  | boolean | no              | `true`  | Enables coordinates rounding                                                         |
 | `max_selections`        | integer | no              | 1       | Maximal number of selections                                                         |
 | `id_type`               | string  | no              | -       | `number` or `string`: the type room ids are sent as in a `ROOM` mode<sup>4</sup>      |
-| `cleaning_order`        | boolean | no              | template, else `false` | ROOM modes: the vacuum cleans the rooms in the order they are sent, so they are numbered ([cleaning order](#cleaning-order)) |
+| `cleaning_order`        | boolean | no              | template, else `false` | ROOM modes: number the selected rooms in the order they are sent. On by default only where the integration follows that order ([cleaning order](#cleaning-order)) |
 | `repeats_type`          | string  | no              | `NONE`  | Type of repeats inclusion, one of [supported ones](#supported-repeats-types)         |
 | `max_repeats`           | integer | no              | 1       | Maximal value of repeats                                                             |
 | `variables`             | object  | no              | -       | Variables that should be passed to `service_call_schema`                             |

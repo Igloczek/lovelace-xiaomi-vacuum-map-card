@@ -53,11 +53,13 @@ before; change it in the editor. The setting is only a starting point and is wri
 
 ## Cleaning order per platform
 
-The card numbers selected rooms only where the template's service call makes the vacuum clean
-them in the order they are sent. Elsewhere the rooms are highlighted without numbers. Set
-`cleaning_order` on a ROOM map mode to change this ([cleaning order](configuration.md#cleaning-order)).
+Rooms are sent in the order you tap them, but only some integrations make the vacuum clean them in
+that order. The card numbers the selected rooms only on those. Everywhere else the vacuum chooses
+its own route and the rooms are highlighted without numbers. A mode can show the numbers with
+`cleaning_order: true`, which does not change the order the vacuum cleans in
+([cleaning order](configuration.md#cleaning-order)).
 
-| Template | Numbered | Why |
+| Template | Numbered (order followed) | Why |
 |---|---|---|
 | `rand256/ValetudoRE` segments | yes | `segmented_cleanup` sends Roborock's `clean_order_mode: 1` |
 | `Hypfer/Valetudo` | yes | Sends `customOrder: true`; Valetudo follows it on Roborock and Dreame robots, not on Viomi or Midea |
@@ -66,8 +68,9 @@ them in the order they are sent. Elsewhere the rooms are highlighted without num
 | `Tasshack/dreame-vacuum` | no | Newer models clean in the sequence stored on the robot, not the order sent |
 | `marotoweb/viomi SE`, `tykarol/ViomiVacuumV8`, `KrzysztofHajdamowicz/miio2` | no | Viomi has no order field; the V8 cleans in its own order |
 | `romedtino/simple-wyze-vac` | no | The integration sorts the rooms into map order |
-| `DeebotUniverse/Deebot-4-Home-Assistant`, `Roomba`, `Neato`, `BenjaminPaap/home-assistant-myneato` | no | No evidence that the order is followed |
-| `al-one/Xiaomi MIoT`, ValetudoRE go-to | no | One room at a time |
+| `DeebotUniverse/Deebot-4-Home-Assistant`, `Roomba`, `Neato`, `BenjaminPaap/home-assistant-myneato` | no | Not known to follow the order (Roomba core omits iRobot's `ordered`) |
+| `al-one/Xiaomi MIoT`, ValetudoRE go-to | no | One room per call, so there is no order |
+| Any mode with its own `service_call_schema` | no | The card cannot know what the call does; set `cleaning_order: true` if it follows the order |
 
 [Adding a new platform](../CONTRIBUTING.md#adding-new-platform). Platform templates are shared with
 upstream, so platform requests go to the
