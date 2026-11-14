@@ -107,8 +107,11 @@ export function setPresetIndex(card: XiaomiVacuumMapCard, index: number, user = 
     // Switching preset is the user's choice and starts afresh.
     const keptType = !user && index === card.presetIndex ? card._getCurrentMode()?.selectionType : undefined;
     const keptModeIndex = card.selectedMode;
-    // Another preset may use another camera; whether it has room metadata is learnt afresh.
-    if (index !== card.presetIndex) card.roomMetadataSeen = false;
+    // Another preset, or a config re-set that changes this preset's camera, may use a camera that
+    // never reports rooms; whether it has room metadata is learnt afresh.
+    if (index !== card.presetIndex || config?.map_source?.camera !== card.currentPreset?.map_source?.camera) {
+        card.roomMetadataSeen = false;
+    }
     // must happen before the reset below, so that the reset is not persisted for the preset we are leaving
     card.restoredMapViewKey = undefined;
     // the angle and the pan/zoom belong together - the offsets only make sense for the angle they

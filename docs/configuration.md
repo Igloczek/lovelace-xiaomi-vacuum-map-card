@@ -561,7 +561,9 @@ selected items and their order, which is the cleaning order.
   that supplies zones or points, or from the configuration) leaves the selection; the others keep
   their order.
 - An item with a `state_entity` follows that entity. When the entity turns on outside the card, the
-  item joins the end of the selection; when it turns off, the item leaves.
+  item joins the end of the selection; when it turns off, the item leaves. The entity is the
+  selection itself, so when it is `unavailable` the item leaves too and rejoins at the end when the
+  entity comes back on (as in the original card).
 - `default_state: selected` applies when an item first appears, when the configuration changes its
   `default_state`, and after the selection is cleared, not on every refresh: an item you deselected
   stays deselected.

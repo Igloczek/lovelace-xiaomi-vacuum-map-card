@@ -4,6 +4,7 @@ import { addRectangle } from "../../src/card/selection";
 import type { MapModeConfig, XiaomiVacuumMapCardConfig } from "../../src/types/types";
 import type { CardHandle, MockHass } from "../harness";
 import {
+    cameraEntity,
     extractorRoom,
     fixtureConfig,
     fixtureHass,
@@ -11,6 +12,7 @@ import {
     mountCard,
     selectPreset,
     settle,
+    syntheticCalibrationPoints,
     syntheticRooms,
     useHarnessClock,
     withState,
@@ -627,5 +629,32 @@ describe("review findings (PR #31)", () => {
         await clickRoom(card, "0");
         await settle(card.element, 300);
         expect(roomOrder(card)).toEqual(["2", "0"]);
+    });
+});
+
+describe("a config re-set that changes the camera", () => {
+    it("does not hold a removed room when the preset's new camera has no room metadata", async () => {
+        const otherCamera = "camera.vacuum_map_configured";
+        const hass = withState(baseHass(), otherCamera, {
+            state: "idle",
+            attributes: { ...cameraEntity({ calibration_points: syntheticCalibrationPoints() }).attributes },
+        }).hass;
+        const config = cardConfig([ROOM_MODE_CONFIGURED]);
+        useHarnessClock();
+        const card = await mountCard(config, hass);
+        await card.fireMapLoad();
+        await clickRoom(card, "2");
+
+        const edited = mode({
+            selection_type: "ROOM",
+            predefined_selections: (ROOM_MODE_CONFIGURED.predefined_selections ?? []).filter(
+                room => (room as { id: number }).id !== 2,
+            ),
+        } as never);
+        await resetConfig(card, cardConfig([edited], { map_source: { camera: otherCamera } }));
+
+        expect(roomOrder(card)).toEqual([]);
+        // A camera that never reported rooms is known to have none: nothing may be held.
+        expect((card.element as unknown as { heldSelection?: unknown }).heldSelection).toBeUndefined();
     });
 });
