@@ -3,7 +3,10 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ACTIVE_ROOM_RUN_STORE_KEY } from "../../src/const";
+import { validateConfig } from "../../src/config-validators";
+import { PlatformGenerator } from "../../src/model/generators/platform-generator";
 import { MapMode } from "../../src/model/map_mode/map-mode";
+import { SelectionType } from "../../src/model/map_mode/selection-type";
 import type { MapModeConfig, PlatformTemplate, XiaomiVacuumMapCardConfig } from "../../src/types/types";
 import type { CardHandle } from "../harness";
 import { fixtureConfig, fixtureHass, loadSyntheticFixture, mountCard, settle, useHarnessClock, withState } from "../harness";
@@ -61,6 +64,48 @@ describe("which platform templates number the rooms", () => {
             expect(new MapMode("default", config, "en").showsRoomOrder()).toBe(numbered);
         });
     }
+});
+
+describe("generated and template-named room modes", () => {
+    for (const platform of PlatformGenerator.getPlatforms()) {
+        const roomsTemplate = PlatformGenerator.getRoomsTemplate(platform);
+        if (roomsTemplate === undefined) continue;
+        const declared = PlatformGenerator.getModeTemplate(platform, roomsTemplate).cleaning_order === true;
+
+        it(`${platform}: a mode naming the room template inherits its cleaning_order (${declared})`, () => {
+            expect(new MapMode(platform, { template: roomsTemplate }, "en").showsRoomOrder()).toBe(declared);
+        });
+
+        it(`${platform}: the generated default room mode inherits it too`, () => {
+            for (const config of PlatformGenerator.generateDefaultModes(platform, true)) {
+                const mode = new MapMode(platform, config, "en");
+                if (mode.selectionType !== SelectionType.ROOM) continue;
+                const template = PlatformGenerator.getModeTemplate(platform, config.template as string);
+                expect(mode.showsRoomOrder()).toBe(template.cleaning_order === true);
+            }
+        });
+    }
+});
+
+describe("cleaning_order validation", () => {
+    const withRoomMode = (extra: Record<string, unknown>): XiaomiVacuumMapCardConfig => ({
+        ...fixtureConfig(loadSyntheticFixture()),
+        map_modes: [{ template: "vacuum_clean_segment", ...extra } as MapModeConfig],
+    });
+
+    it("accepts true and false", () => {
+        expect(validateConfig(withRoomMode({ cleaning_order: true }))).toEqual([]);
+        expect(validateConfig(withRoomMode({ cleaning_order: false }))).toEqual([]);
+        // An empty YAML key arrives as null and means "not set".
+        expect(validateConfig(withRoomMode({ cleaning_order: null }))).toEqual([]);
+    });
+
+    it("reports a value that is not a boolean instead of silently treating it as off", () => {
+        for (const value of ["yes", 1, "true"]) {
+            const errors = validateConfig(withRoomMode({ cleaning_order: value }));
+            expect(errors.join(" "), String(value)).toContain("cleaning_order");
+        }
+    });
 });
 
 describe("MapMode.showsRoomOrder", () => {
