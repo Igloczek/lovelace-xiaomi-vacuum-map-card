@@ -17,6 +17,7 @@ suite passes against the release candidate; screenshots are written to the gitig
 | `view-switch-resize.spec.ts` | A zoomed map in the sections view keeps the same map point in view and its camera snapshot after switching to another view and back, and after the window narrows to phone width. |
 | `camera-rate.spec.ts` | Vacuum state changes cause no snapshot request inside the refresh window (at most the one interval refresh); a camera change causes exactly one; a hidden tab causes none; becoming visible again causes one. |
 | `yaml-y-key.spec.ts` | A YAML dashboard with an unquoted `y:` key applies the offset, so Home Assistant 2026.11 does not reproduce the boolean-key bug (upstream #952). |
+| `selection-lifecycle.spec.ts` | Two rooms are tapped in a non-id order; turning the third room's `state_entity` (`input_boolean.e2e_clean_living_room`) on adds it at the end, a camera bump keeps the order, and turning the boolean off removes only that room, with the badges renumbered to match. |
 | `stale-rooms.spec.ts` | The fixture renumbers its segments while keeping the geometry: the card marks the configured rooms stale, warns with their ids, refuses to select them, and still selects the new live id. |
 
 ## What it does not cover

@@ -22,6 +22,9 @@ import { getActiveRoomOrder } from "./active-run";
 import { getLiveRoomIds } from "./rooms";
 import { getRoomsConfig } from "./rooms";
 import { getStaleRoomIds } from "./rooms";
+import { captureSelection, restoreSelection, SelectionSnapshot } from "../model/selection-rebuild";
+import { getWatchedEntitiesForMapMode } from "../utils";
+import { isCameraRoomsKnown, isEntitySourceKnown } from "../model/source-availability";
 import { runSelection } from "./run";
 
 export function createContext(card: XiaomiVacuumMapCard): Context {
@@ -50,11 +53,25 @@ export function createContext(card: XiaomiVacuumMapCard): Context {
     );
 }
 
-export function setCurrentMode(card: XiaomiVacuumMapCard, newModeIndex: number, manual = true, preserveSelectedRoomIds?: string[]): void {
+/**
+ * Shows the mode at `newModeIndex` and builds its selectable objects.
+ *
+ * Without `keep` the selection starts fresh (a mode switch, the clear action, a run with
+ * `clean_selection_on_start`): manual shapes are removed and predefined objects take their
+ * `default_state` or `state_entity` state. With `keep` (a rebuild, see `rebuildSelection`) the
+ * user's selection survives: manual shapes stay, predefined objects that still exist keep their
+ * selection and its order, and only objects that disappeared leave it.
+ */
+export function setCurrentMode(card: XiaomiVacuumMapCard, newModeIndex: number, manual = true, keep?: SelectionSnapshot): void {
     const newMode = card.modes[newModeIndex];
-    card.selectedManualRectangles = [];
-    card.selectedManualPoint = undefined;
-    card.selectedManualPath.clear();
+    const snapshot = keep && keep.selectionType === newMode?.selectionType ? keep : undefined;
+    let held: SelectionSnapshot | undefined;
+    const maxSelections = newMode?.maxSelections;
+    if (!snapshot) {
+        card.selectedManualRectangles = [];
+        card.selectedManualPoint = undefined;
+        card.selectedManualPath.clear();
+    }
     card.selectedPredefinedRectangles = [];
     card.selectedRooms = [];
     card.selectedPredefinedPoints = [];
@@ -72,10 +89,11 @@ export function setCurrentMode(card: XiaomiVacuumMapCard, newModeIndex: number, 
                 .filter(pzc => typeof pzc.zones !== "string")
                 .map(pzc => new PredefinedMultiRectangle(pzc, createContext(card)));
             card.selectablePredefinedRectangles = zonesFromEntities.concat(manualZones);
-            card.selectedPredefinedRectangles = card.selectablePredefinedRectangles.filter(s => s.selected);
-            card.entitiesToManuallyUpdate = newMode.predefinedSelections
-                .filter(s => s.state_entity)
-                .map(s => s.state_entity as string);
+            ({ selected: card.selectedPredefinedRectangles, held } = restoreSelection(
+                card.selectablePredefinedRectangles,
+                snapshot,
+                { maxSelections, sourceUnknown: isEntitySourceUnknown(card, newMode, "zones") },
+            ));
             break;
         case SelectionType.ROOM:
             const configuredRooms = newMode.predefinedSelections.map(ps => ps as RoomConfig);
@@ -112,22 +130,15 @@ export function setCurrentMode(card: XiaomiVacuumMapCard, newModeIndex: number, 
                 };
                 return new Room(config, createContext(card), {
                     imageOutline: region?.outline,
-                    selected: preserveSelectedRoomIds?.includes(String(room.id)),
                     stale: staleRoomIds.has(String(room.id)),
                 });
             });
-            // A rebuild keeps the click order of the rooms it preserves: the order is the
+            // A rebuild keeps the click order of the rooms that still exist: the order is the
             // cleaning order sent to the platform, and the rebuilt list is in room-id order.
-            const preservedOrder = (room: Room): number => {
-                const index = preserveSelectedRoomIds?.indexOf(String(room.toVacuum())) ?? -1;
-                return index < 0 ? Number.MAX_SAFE_INTEGER : index;
-            };
-            card.selectedRooms = card.selectableRooms
-                .filter(s => s.selected)
-                .sort((a, b) => preservedOrder(a) - preservedOrder(b));
-            card.entitiesToManuallyUpdate = newMode.predefinedSelections
-                .filter(s => s.state_entity)
-                .map(s => s.state_entity as string);
+            ({ selected: card.selectedRooms, held } = restoreSelection(card.selectableRooms, snapshot, {
+                maxSelections,
+                sourceUnknown: isRoomMetadataUnknown(card),
+            }));
             break;
         case SelectionType.PREDEFINED_POINT:
             const pointsFromEntities = PredefinedPoint.getFromEntities(newMode, card.hass, () =>
@@ -138,15 +149,98 @@ export function setCurrentMode(card: XiaomiVacuumMapCard, newModeIndex: number, 
                 .filter(ppc => typeof ppc.position !== "string")
                 .map(ppc => new PredefinedPoint(ppc, createContext(card)));
             card.selectablePredefinedPoints = pointsFromEntities.concat(manualPoints);
-            card.selectedPredefinedPoints = card.selectablePredefinedPoints.filter(s => s.selected);
-            card.entitiesToManuallyUpdate = newMode.predefinedSelections
-                .filter(s => s.state_entity)
-                .map(s => s.state_entity as string);
+            // A tap selects one point at a time, so a rebuild never keeps more than one either.
+            ({ selected: card.selectedPredefinedPoints, held } = restoreSelection(
+                card.selectablePredefinedPoints,
+                snapshot,
+                { maxSelections: 1, sourceUnknown: isEntitySourceUnknown(card, newMode, "position") },
+            ));
             break;
     }
+    // Every entity a selectable object is built from: a `state_entity` and the source of
+    // entity-backed zones and points. A change of any of them rebuilds the mode.
+    card.entitiesToManuallyUpdate = newMode ? [...getWatchedEntitiesForMapMode(newMode)] : [];
+    card.heldSelection = held;
+    card.builtRoomIdsKey = getLiveRoomIdsKey(card);
+    if (card.builtRoomIdsKey !== undefined) card.roomMetadataSeen = true;
     if (card.selectedMode != newModeIndex && manual) forwardHaptic("selection");
     card.selectedMode = newModeIndex;
     selectionChanged(card);
+    // The selected objects were replaced; without this the map keeps drawing the old ones until
+    // an unrelated update arrives.
+    card.requestUpdate();
+}
+
+/** The current selection, so a rebuild can keep it. Undefined when no mode is shown. */
+export function captureCurrentSelection(card: XiaomiVacuumMapCard): SelectionSnapshot | undefined {
+    const mode = card._getCurrentMode();
+    if (!mode) return undefined;
+    switch (mode.selectionType) {
+        case SelectionType.PREDEFINED_RECTANGLE:
+            return captureSelection(
+                mode.selectionType,
+                card.selectablePredefinedRectangles,
+                card.selectedPredefinedRectangles,
+                card.heldSelection,
+            );
+        case SelectionType.ROOM:
+            return captureSelection(mode.selectionType, card.selectableRooms, card.selectedRooms, card.heldSelection);
+        case SelectionType.PREDEFINED_POINT:
+            return captureSelection(
+                mode.selectionType,
+                card.selectablePredefinedPoints,
+                card.selectedPredefinedPoints,
+                card.heldSelection,
+            );
+        default:
+            return { selectionType: mode.selectionType, selectedKeys: [], known: new Map() };
+    }
+}
+
+/**
+ * Rebuilds the current mode's selectable objects from the current hass and config, keeping the
+ * user's selection. Used for every rebuild the user did not ask for: an entity behind a selection
+ * changed, the camera's rooms or colours changed.
+ */
+export function rebuildSelection(card: XiaomiVacuumMapCard): void {
+    setCurrentMode(card, card.selectedMode, false, captureCurrentSelection(card));
+}
+
+/**
+ * The camera's room metadata is unknown (see `isCameraRoomsKnown`): selected rooms are then held
+ * until the metadata returns (FORK.md, stale room selections: missing metadata means "unknown").
+ */
+function isRoomMetadataUnknown(card: XiaomiVacuumMapCard): boolean {
+    const camera = card.hass?.states[card.currentPreset?.map_source?.camera ?? ""];
+    return !isCameraRoomsKnown(camera, card.roomMetadataSeen);
+}
+
+/** An entity that lists this mode's zones or points is unknown (see `isEntitySourceKnown`). */
+function isEntitySourceUnknown(card: XiaomiVacuumMapCard, mode: MapMode, field: "zones" | "position"): boolean {
+    return mode.predefinedSelections
+        .map(selection => (selection as unknown as Record<string, unknown>)[field])
+        .filter((source): source is string => typeof source === "string")
+        .some(source => !isEntitySourceKnown(card.hass?.states, source));
+}
+
+/** The live camera room ids as one comparable value; undefined without metadata. */
+function getLiveRoomIdsKey(card: XiaomiVacuumMapCard): string | undefined {
+    if (!card.hass || !card.currentPreset) return undefined;
+    const ids = getLiveRoomIds(card);
+    return ids ? JSON.stringify([...ids].sort()) : undefined;
+}
+
+/**
+ * Called after every card update. Rebuilds the current mode, keeping the selection, when an entity
+ * a selectable object is built from changed (`entitiesChanged`) or, in a ROOM mode, when the
+ * camera's room ids changed. Colour detection also rebuilds the rooms on a camera refresh, but it
+ * is unavailable without a canvas or calibration; a room that left the metadata must still leave
+ * the selection and its badge, and a new room must appear.
+ */
+export function updateSelectables(card: XiaomiVacuumMapCard, entitiesChanged: boolean): void {
+    const roomsChanged =
+        card._getCurrentMode()?.selectionType === SelectionType.ROOM && getLiveRoomIdsKey(card) !== card.builtRoomIdsKey;
+    if (entitiesChanged || roomsChanged) rebuildSelection(card);
 }
 
 /**

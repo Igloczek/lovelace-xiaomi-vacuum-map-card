@@ -36,6 +36,32 @@ export abstract class PredefinedMapObject extends MapObject {
         }
     }
 
+    /** Identifies what this object refers to, so a rebuilt object can take over its selection. */
+    public abstract selectionKey(): string;
+
+    /**
+     * Applies a selection kept across a rebuild. An object with a `state_entity` follows its entity
+     * instead: the entity is where the selection lives.
+     */
+    public restoreSelected(selected: boolean): void {
+        if (this._common_config.state_entity) return;
+        this._selected = selected;
+    }
+
+    /** Leaves the selection because of `max_selections`; a `state_entity` is not toggled. */
+    public dropSelected(): void {
+        this._selected = false;
+    }
+
+    public defaultSelected(): boolean {
+        return this._common_config.default_state == SelectionState.SELECTED;
+    }
+
+    /** How much of `max_selections` this object uses. */
+    public selectionSize(): number {
+        return 1;
+    }
+
     public isDynamic(): boolean {
         return this._common_config.state_entity !== undefined;
     }

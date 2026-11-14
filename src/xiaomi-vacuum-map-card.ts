@@ -15,6 +15,7 @@ import {
 } from "lit/decorators";
 import { forwardHaptic, LovelaceCardEditor } from "custom-card-helpers";
 import "./editor";
+import type { SelectionSnapshot } from "./model/selection-rebuild";
 import type {
     ActionableObjectConfig,
     IconActionConfig,
@@ -84,7 +85,15 @@ import { executePresetsActivation, getAllAvailablePresets, getAllPresets, getNex
 import { createMapControls, showConfigErrors, showInvalidCalibrationWarning, showInvalidEntities, showOldConfig, showToast } from "./card/render";
 import { detectRoomColors, getStaleRoomIds, handleRoomColorClick, refreshRoomsAfterColorDetection } from "./card/rooms";
 import { handleServiceCallGet } from "./card/run";
-import { createContext, drawSelection, getSelection, runImmediately, selectionChanged, setCurrentMode } from "./card/selection";
+import {
+    createContext,
+    drawSelection,
+    getSelection,
+    runImmediately,
+    selectionChanged,
+    setCurrentMode,
+    updateSelectables,
+} from "./card/selection";
 import { cardStyles } from "./card/styles";
 
 const line1 = "   XIAOMI-VACUUM-MAP-CARD";
@@ -160,6 +169,12 @@ export class XiaomiVacuumMapCard extends LitElement {
     selectablePredefinedPoints: PredefinedPoint[] = [];
     coordinatesConverter?: CoordinatesConverter;
     entitiesToManuallyUpdate: string[] = [];
+    /** The live camera room ids the current ROOM objects were built from (see `updateSelectables`). */
+    builtRoomIdsKey?: string;
+    /** The camera has reported room metadata at least once, so its absence means "unknown". */
+    roomMetadataSeen = false;
+    /** Selected keys kept while their source is unknown (see `restoreSelection`). */
+    heldSelection?: SelectionSnapshot;
     modes: MapMode[] = [];
     shouldHandleMouseUp!: boolean;
     lastHassUpdate!: Date;
@@ -262,7 +277,8 @@ export class XiaomiVacuumMapCard extends LitElement {
             return;
         }
         this.watchedEntities = getWatchedEntities(this.config);
-        setPresetIndex(this, 0, false, true);
+        // A config set again (editor preview, dashboard re-render) stays on the current preset.
+        setPresetIndex(this, this.presetIndex ?? 0, false, true);
         this.requestUpdate("config");
     }
 
@@ -742,26 +758,7 @@ export class XiaomiVacuumMapCard extends LitElement {
             this._restoreMapView();
         }, 100);
 
-        if (!somethingChanged) {
-            return;
-        }
-
-        const update = () => {
-            setCurrentMode(this, this.selectedMode);
-            this.requestUpdate();
-        };
-
-        switch (this._getCurrentMode()?.selectionType) {
-            case SelectionType.PREDEFINED_RECTANGLE:
-                this.selectablePredefinedRectangles.filter(p => p.isDynamic()).length > 0 && update();
-                break;
-            case SelectionType.ROOM:
-                this.selectedRooms.filter(p => p.isDynamic()).length > 0 && update();
-                break;
-            case SelectionType.PREDEFINED_POINT:
-                this.selectablePredefinedPoints.filter(p => p.isDynamic()).length > 0 && update();
-                break;
-        }
+        updateSelectables(this, somethingChanged);
     }
 
     readonly _toggleLock = (): void => toggleLock(this);

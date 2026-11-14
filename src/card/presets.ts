@@ -10,7 +10,7 @@ import { ServiceCallSchema } from "../model/map_mode/service-call-schema";
 import type { XiaomiVacuumMapCard } from "../xiaomi-vacuum-map-card";
 import { getConfiguredRotation } from "./map-view";
 import { selectionChanged } from "./selection";
-import { setCurrentMode } from "./selection";
+import { captureCurrentSelection, setCurrentMode } from "./selection";
 
 export function getCalibration(card: XiaomiVacuumMapCard, config: CardPresetConfig): CalibrationPoint[] | undefined {
     if (config.calibration_source?.identity) {
@@ -102,6 +102,16 @@ export function setPresetIndex(card: XiaomiVacuumMapCard, index: number, user = 
         return;
     }
     const config = index === 0 ? card.config : (card.config.additional_presets ?? [])[index - 1];
+    // Re-entering the same preset without the user asking (a config set again by the editor or the
+    // dashboard, the first hass) keeps the mode and the selection where they still exist.
+    // Switching preset is the user's choice and starts afresh.
+    const keptType = !user && index === card.presetIndex ? card._getCurrentMode()?.selectionType : undefined;
+    const keptModeIndex = card.selectedMode;
+    // Another preset, or a config re-set that changes this preset's camera, may use a camera that
+    // never reports rooms; whether it has room metadata is learnt afresh.
+    if (index !== card.presetIndex || config?.map_source?.camera !== card.currentPreset?.map_source?.camera) {
+        card.roomMetadataSeen = false;
+    }
     // must happen before the reset below, so that the reset is not persisted for the preset we are leaving
     card.restoredMapViewKey = undefined;
     // the angle and the pan/zoom belong together - the offsets only make sense for the angle they
@@ -114,13 +124,15 @@ export function setPresetIndex(card: XiaomiVacuumMapCard, index: number, user = 
         forwardHaptic("selection");
     }
     card.mapLocked = config?.map_locked ?? false;
-    card.selectedMode = 0;
     card.realScale = 1;
     card.mapScale = 1;
     card.mapX = 0;
     card.mapY = 0;
     if (card.hass) updateCalibration(card, config);
     card.modes = getModes(card, config);
+    const keepMode = keptType !== undefined && card.modes[keptModeIndex]?.selectionType === keptType;
+    const modeIndex = keepMode ? keptModeIndex : 0;
+    card.selectedMode = modeIndex;
 
     card.presetIndex = index;
     card.currentPreset = config;
@@ -129,7 +141,8 @@ export function setPresetIndex(card: XiaomiVacuumMapCard, index: number, user = 
     card._getIconsAndTiles(config, card.internalVariables)
         .then(([icons, tiles]) => setPreset(card, { ...config, tiles: tiles, icons: icons }))
         .then(() => card._scheduleDelayedCallback(() => card.requestUpdate(), 100))
-        .then(() => setCurrentMode(card, 0, false));
+        // The selection is read only now: a tap made while the icons and tiles loaded counts too.
+        .then(() => setCurrentMode(card, modeIndex, false, keepMode ? captureCurrentSelection(card) : undefined));
 
     if (user && card.currentPreset.activate_on_switch) {
         executePresetsActivation(card);
