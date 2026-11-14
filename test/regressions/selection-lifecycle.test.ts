@@ -9,6 +9,7 @@ import {
     fixtureHass,
     loadSyntheticFixture,
     mountCard,
+    selectPreset,
     settle,
     syntheticRooms,
     useHarnessClock,
@@ -524,5 +525,107 @@ describe("manual selections across rebuilds", () => {
             expect(selection(card), manualMode.selection_type).toEqual(drawn);
             await card.cleanup();
         }
+    });
+});
+
+describe("review findings (PR #31)", () => {
+    it("keeps metadata rooms through a camera that is briefly unavailable", async () => {
+        const card = await mount([ROOM_MODE_METADATA]);
+        await clickRoom(card, "2");
+        await clickRoom(card, "0");
+        const available = card.hass.states[CAMERA];
+
+        // An HA restart or integration reload: the camera reports no attributes for a while.
+        await setState(card, CAMERA, { state: "unavailable", attributes: {}, last_updated: "2026-11-01T10:05:00.000Z" });
+        await setState(card, CAMERA, { ...available, last_updated: "2026-11-01T10:06:00.000Z" });
+
+        expect(roomOrder(card)).toEqual(["2", "0"]);
+        expect(badges(card)).toEqual({ "2": "1", "0": "2" });
+    });
+
+    it("keeps entity-backed zones through a source entity that is briefly unavailable", async () => {
+        const card = await mount([RECTANGLE_MODE]);
+        const entityZone = [1000, 1000, 1200, 1200];
+        await clickZone(card, 1); // ZONE_A
+        await clickZone(card, 0); // the entity zone
+        const available = card.hass.states[ZONES_SOURCE];
+
+        await setState(card, ZONES_SOURCE, { state: "unavailable", attributes: {} });
+        expect(selection(card)).toEqual([ZONE_A]);
+        await setState(card, ZONES_SOURCE, { ...available });
+
+        expect(selection(card)).toEqual([ZONE_A, entityZone]);
+    });
+
+    it("does not let a state-entity room join past max_selections", async () => {
+        const card = await mount([{ ...ROOM_MODE_CONFIGURED, max_selections: 2 }]);
+        await clickRoom(card, "2");
+        await clickRoom(card, "0");
+
+        await setState(card, ROOM_ENTITY, { state: "on" });
+        expect(roomOrder(card)).toEqual(["2", "0"]);
+        expect(selection(card)).toEqual(["2", "0"]);
+    });
+
+    it("keeps the first rooms in order when a config re-set lowers max_selections", async () => {
+        const config = cardConfig([ROOM_MODE_METADATA]);
+        useHarnessClock();
+        const card = await mountCard(config, baseHass());
+        await card.fireMapLoad();
+        await clickRoom(card, "2");
+        await clickRoom(card, "0");
+
+        await resetConfig(card, cardConfig([{ ...ROOM_MODE_METADATA, max_selections: 1 }]));
+        expect(roomOrder(card)).toEqual(["2"]);
+    });
+
+    it("keeps the current preset when the config is set again", async () => {
+        const base = cardConfig([ROOM_MODE_METADATA]);
+        const config: XiaomiVacuumMapCardConfig = {
+            ...base,
+            preset_name: "First",
+            additional_presets: [{ ...base, preset_name: "Second", map_modes: [MANUAL_RECTANGLE_MODE, ROOM_MODE_METADATA] }],
+        };
+        useHarnessClock();
+        const card = await mountCard(config, baseHass());
+        await card.fireMapLoad();
+        await selectPreset(card, 1);
+        await dispatchAction(card, "map_mode.set", { index: 1 });
+        await clickRoom(card, "1");
+
+        await resetConfig(card, { ...config });
+        expect((card.element as unknown as { presetIndex: number }).presetIndex).toBe(1);
+        expect(internals(card).selectedMode).toBe(1);
+        expect(roomOrder(card)).toEqual(["1"]);
+    });
+
+    it("applies a default_state the editor newly sets on an existing room", async () => {
+        const config = cardConfig([ROOM_MODE_CONFIGURED]);
+        useHarnessClock();
+        const card = await mountCard(config, baseHass());
+        await card.fireMapLoad();
+        await clickRoom(card, "2");
+
+        const edited = mode({
+            selection_type: "ROOM",
+            predefined_selections: (ROOM_MODE_CONFIGURED.predefined_selections ?? []).map(room =>
+                (room as { id: number }).id === 0 ? { ...room, default_state: "selected" } : room,
+            ),
+        } as never);
+        await resetConfig(card, cardConfig([edited]));
+        expect(roomOrder(card)).toEqual(["2", "0"]);
+    });
+
+    it("keeps a tap made while a config re-set is still loading", async () => {
+        const config = cardConfig([ROOM_MODE_METADATA]);
+        useHarnessClock();
+        const card = await mountCard(config, baseHass());
+        await card.fireMapLoad();
+        await clickRoom(card, "2");
+
+        card.element.setConfig({ ...config });
+        await clickRoom(card, "0");
+        await settle(card.element, 300);
+        expect(roomOrder(card)).toEqual(["2", "0"]);
     });
 });

@@ -562,8 +562,17 @@ selected items and their order, which is the cleaning order.
   their order.
 - An item with a `state_entity` follows that entity. When the entity turns on outside the card, the
   item joins the end of the selection; when it turns off, the item leaves.
-- `default_state: selected` applies when an item first appears and after the selection is cleared,
-  not on every refresh: an item you deselected stays deselected.
+- `default_state: selected` applies when an item first appears, when the configuration changes its
+  `default_state`, and after the selection is cleared, not on every refresh: an item you deselected
+  stays deselected.
+- A source that is unavailable (the camera without `rooms` during a Home Assistant restart, or an
+  unavailable entity that lists zones or points) is unknown, not empty: its selected items are
+  hidden while it is away and come back in their place when it returns.
+- `max_selections` holds on every refresh. The items you selected first keep their place; a
+  `state_entity` item that turns on beyond the limit is not added (its entity stays on), and a
+  configuration that lowers the limit keeps the first items. A `PREDEFINED_POINT` mode keeps one
+  point, as a tap does.
+- Setting the configuration again keeps the current preset and mode when they still exist.
 
 ### Icon options
 

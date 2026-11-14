@@ -71,6 +71,10 @@ export class PredefinedMultiRectangle extends PredefinedMapObject {
         return JSON.stringify(this._config.zones);
     }
 
+    public selectionSize(): number {
+        return this.size();
+    }
+
     public size(): number {
         return this._config.zones.length;
     }

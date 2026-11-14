@@ -48,6 +48,20 @@ export abstract class PredefinedMapObject extends MapObject {
         this._selected = selected;
     }
 
+    /** Leaves the selection because of `max_selections`; a `state_entity` is not toggled. */
+    public dropSelected(): void {
+        this._selected = false;
+    }
+
+    public defaultSelected(): boolean {
+        return this._common_config.default_state == SelectionState.SELECTED;
+    }
+
+    /** How much of `max_selections` this object uses. */
+    public selectionSize(): number {
+        return 1;
+    }
+
     public isDynamic(): boolean {
         return this._common_config.state_entity !== undefined;
     }

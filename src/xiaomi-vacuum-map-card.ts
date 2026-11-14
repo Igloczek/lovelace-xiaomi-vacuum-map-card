@@ -15,6 +15,7 @@ import {
 } from "lit/decorators";
 import { forwardHaptic, LovelaceCardEditor } from "custom-card-helpers";
 import "./editor";
+import type { SelectionSnapshot } from "./model/selection-rebuild";
 import type {
     ActionableObjectConfig,
     IconActionConfig,
@@ -170,6 +171,10 @@ export class XiaomiVacuumMapCard extends LitElement {
     entitiesToManuallyUpdate: string[] = [];
     /** The live camera room ids the current ROOM objects were built from (see `updateSelectables`). */
     builtRoomIdsKey?: string;
+    /** The camera has reported room metadata at least once, so its absence means "unknown". */
+    roomMetadataSeen = false;
+    /** Selected keys kept while their source is unknown (see `restoreSelection`). */
+    heldSelection?: SelectionSnapshot;
     modes: MapMode[] = [];
     shouldHandleMouseUp!: boolean;
     lastHassUpdate!: Date;
@@ -272,7 +277,8 @@ export class XiaomiVacuumMapCard extends LitElement {
             return;
         }
         this.watchedEntities = getWatchedEntities(this.config);
-        setPresetIndex(this, 0, false, true);
+        // A config set again (editor preview, dashboard re-render) stays on the current preset.
+        setPresetIndex(this, this.presetIndex ?? 0, false, true);
         this.requestUpdate("config");
     }
 

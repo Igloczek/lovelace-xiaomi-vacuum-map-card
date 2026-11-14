@@ -64,6 +64,8 @@ export function createContext(card: XiaomiVacuumMapCard): Context {
 export function setCurrentMode(card: XiaomiVacuumMapCard, newModeIndex: number, manual = true, keep?: SelectionSnapshot): void {
     const newMode = card.modes[newModeIndex];
     const snapshot = keep && keep.selectionType === newMode?.selectionType ? keep : undefined;
+    let held: SelectionSnapshot | undefined;
+    const maxSelections = newMode?.maxSelections;
     if (!snapshot) {
         card.selectedManualRectangles = [];
         card.selectedManualPoint = undefined;
@@ -86,7 +88,11 @@ export function setCurrentMode(card: XiaomiVacuumMapCard, newModeIndex: number, 
                 .filter(pzc => typeof pzc.zones !== "string")
                 .map(pzc => new PredefinedMultiRectangle(pzc, createContext(card)));
             card.selectablePredefinedRectangles = zonesFromEntities.concat(manualZones);
-            card.selectedPredefinedRectangles = restoreSelection(card.selectablePredefinedRectangles, snapshot);
+            ({ selected: card.selectedPredefinedRectangles, held } = restoreSelection(
+                card.selectablePredefinedRectangles,
+                snapshot,
+                { maxSelections, sourceUnknown: isEntitySourceUnknown(card, newMode, "zones") },
+            ));
             break;
         case SelectionType.ROOM:
             const configuredRooms = newMode.predefinedSelections.map(ps => ps as RoomConfig);
@@ -128,7 +134,10 @@ export function setCurrentMode(card: XiaomiVacuumMapCard, newModeIndex: number, 
             });
             // A rebuild keeps the click order of the rooms that still exist: the order is the
             // cleaning order sent to the platform, and the rebuilt list is in room-id order.
-            card.selectedRooms = restoreSelection(card.selectableRooms, snapshot);
+            ({ selected: card.selectedRooms, held } = restoreSelection(card.selectableRooms, snapshot, {
+                maxSelections,
+                sourceUnknown: isRoomMetadataUnknown(card),
+            }));
             break;
         case SelectionType.PREDEFINED_POINT:
             const pointsFromEntities = PredefinedPoint.getFromEntities(newMode, card.hass, () =>
@@ -139,13 +148,20 @@ export function setCurrentMode(card: XiaomiVacuumMapCard, newModeIndex: number, 
                 .filter(ppc => typeof ppc.position !== "string")
                 .map(ppc => new PredefinedPoint(ppc, createContext(card)));
             card.selectablePredefinedPoints = pointsFromEntities.concat(manualPoints);
-            card.selectedPredefinedPoints = restoreSelection(card.selectablePredefinedPoints, snapshot);
+            // A tap selects one point at a time, so a rebuild never keeps more than one either.
+            ({ selected: card.selectedPredefinedPoints, held } = restoreSelection(
+                card.selectablePredefinedPoints,
+                snapshot,
+                { maxSelections: 1, sourceUnknown: isEntitySourceUnknown(card, newMode, "position") },
+            ));
             break;
     }
     // Every entity a selectable object is built from: a `state_entity` and the source of
     // entity-backed zones and points. A change of any of them rebuilds the mode.
     card.entitiesToManuallyUpdate = newMode ? [...getWatchedEntitiesForMapMode(newMode)] : [];
+    card.heldSelection = held;
     card.builtRoomIdsKey = getLiveRoomIdsKey(card);
+    if (card.builtRoomIdsKey !== undefined) card.roomMetadataSeen = true;
     if (card.selectedMode != newModeIndex && manual) forwardHaptic("selection");
     card.selectedMode = newModeIndex;
     selectionChanged(card);
@@ -160,13 +176,23 @@ export function captureCurrentSelection(card: XiaomiVacuumMapCard): SelectionSna
     if (!mode) return undefined;
     switch (mode.selectionType) {
         case SelectionType.PREDEFINED_RECTANGLE:
-            return captureSelection(mode.selectionType, card.selectablePredefinedRectangles, card.selectedPredefinedRectangles);
+            return captureSelection(
+                mode.selectionType,
+                card.selectablePredefinedRectangles,
+                card.selectedPredefinedRectangles,
+                card.heldSelection,
+            );
         case SelectionType.ROOM:
-            return captureSelection(mode.selectionType, card.selectableRooms, card.selectedRooms);
+            return captureSelection(mode.selectionType, card.selectableRooms, card.selectedRooms, card.heldSelection);
         case SelectionType.PREDEFINED_POINT:
-            return captureSelection(mode.selectionType, card.selectablePredefinedPoints, card.selectedPredefinedPoints);
+            return captureSelection(
+                mode.selectionType,
+                card.selectablePredefinedPoints,
+                card.selectedPredefinedPoints,
+                card.heldSelection,
+            );
         default:
-            return { selectionType: mode.selectionType, selectedKeys: [], knownKeys: new Set() };
+            return { selectionType: mode.selectionType, selectedKeys: [], known: new Map() };
     }
 }
 
@@ -177,6 +203,36 @@ export function captureCurrentSelection(card: XiaomiVacuumMapCard): SelectionSna
  */
 export function rebuildSelection(card: XiaomiVacuumMapCard): void {
     setCurrentMode(card, card.selectedMode, false, captureCurrentSelection(card));
+}
+
+/**
+ * The camera's room metadata is unknown rather than empty: it is missing now, but the camera has
+ * reported rooms before or is itself unavailable (an HA restart, an integration reload). Selected
+ * rooms are then held until the metadata returns (FORK.md, stale room selections: missing metadata
+ * means "unknown").
+ */
+function isRoomMetadataUnknown(card: XiaomiVacuumMapCard): boolean {
+    if (getLiveRoomIds(card) !== undefined) return false;
+    const camera = card.hass?.states[card.currentPreset?.map_source?.camera ?? ""];
+    return card.roomMetadataSeen || !camera || UNKNOWN_STATES.includes(camera.state);
+}
+
+const UNKNOWN_STATES = ["unavailable", "unknown"];
+
+/**
+ * An entity that lists this mode's zones or points (`sensor.x.attributes.zones`) is missing,
+ * unavailable, or lacks the attribute, so its zones or points are unknown rather than gone.
+ */
+function isEntitySourceUnknown(card: XiaomiVacuumMapCard, mode: MapMode, field: "zones" | "position"): boolean {
+    return mode.predefinedSelections
+        .map(selection => (selection as unknown as Record<string, unknown>)[field])
+        .filter((source): source is string => typeof source === "string")
+        .some(source => {
+            const [entityId, attribute] = source.split(".attributes.");
+            const entity = card.hass?.states[entityId];
+            if (!entity || entity.state === "unavailable") return true;
+            return attribute ? entity.attributes[attribute] === undefined : entity.state === "unknown";
+        });
 }
 
 /** The live camera room ids as one comparable value; undefined without metadata. */
