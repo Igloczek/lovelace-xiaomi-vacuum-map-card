@@ -4,12 +4,14 @@ import type { HassEntity } from "home-assistant-js-websocket/dist/types";
 import { validateConfig } from "../../src/config-validators";
 import { PlatformGenerator } from "../../src/model/generators/platform-generator";
 import { MapMode } from "../../src/model/map_mode/map-mode";
+import { SelectionType } from "../../src/model/map_mode/selection-type";
 import type { XiaomiVacuumMapCardConfig } from "../../src/types/types";
 import {
     cameraEntity,
     mockHass,
     mountCard,
     settle,
+    withState,
     syntheticCalibrationPoints,
     type MockEntityRegistryEntry,
     type MockHass,
@@ -201,6 +203,62 @@ describe("platform defaults mounted with real-shaped entities", () => {
             expect(value).not.toMatch(/unavailable ?(h|min|m²|%|x)$/);
             expect(value).not.toMatch(/NaN|undefined/);
         }
+        await card.cleanup();
+    });
+});
+
+describe("default modes follow the camera's room metadata", () => {
+    const ROOM_PLATFORMS = PLATFORMS.filter(
+        p => !SETUP_PLATFORMS.includes(p) && PlatformGenerator.getRoomsTemplate(p) !== undefined,
+    );
+
+    it.each(ROOM_PLATFORMS)("%s: a camera with rooms gives a room mode without map_modes", async platform => {
+        const { hass, config } = platformWorld(platform, () => ["5", {}]);
+        const card = await mountCard(config, hass);
+        await settle(card.element, 200);
+        const roomModes = card.element.modes.filter(m => m.selectionType === SelectionType.ROOM);
+        expect(roomModes.length).toBeGreaterThanOrEqual(1);
+        // The rooms come from the camera's metadata, string ids and all.
+        await card.cleanup();
+    });
+
+    it.each(ROOM_PLATFORMS)("%s: a camera without rooms keeps the template defaults", async platform => {
+        const world = platformWorld(platform, () => ["5", {}]);
+        const camera = world.hass.states[CAMERA];
+        const attributes = { ...camera.attributes };
+        delete attributes.rooms;
+        const hass = mockHass({
+            states: { ...world.hass.states, [CAMERA]: { ...camera, attributes } as HassEntity },
+            entities: Object.values(world.hass.entities) as MockEntityRegistryEntry[],
+        });
+        const card = await mountCard(world.config, hass);
+        await settle(card.element, 200);
+        expect(card.element.modes.map(m => m.config.template)).toEqual(
+            PlatformGenerator.generateDefaultModes(platform).map(m => m.template),
+        );
+        await card.cleanup();
+    });
+
+    it("configured map_modes are never changed", async () => {
+        const { hass, config } = platformWorld("Xiaomi Miio", () => ["5", {}]);
+        const card = await mountCard({ ...config, map_modes: [{ template: "vacuum_clean_zone" }] }, hass);
+        await settle(card.element, 200);
+        expect(card.element.modes.map(m => m.config.template)).toEqual(["vacuum_clean_zone"]);
+        await card.cleanup();
+    });
+});
+
+describe("room metadata that arrives after the card loaded", () => {
+    it("adds the room mode once the camera reports rooms, keeping the selected mode", async () => {
+        const world = platformWorld("al-one/hass-xiaomi-miot", () => ["5", {}]);
+        const camera = world.hass.states[CAMERA];
+        const withoutRooms = { ...camera.attributes };
+        delete withoutRooms.rooms;
+        const initial = withState(world.hass, CAMERA, { attributes: withoutRooms }).hass;
+        const card = await mountCard(world.config, initial);
+        expect(card.element.modes).toHaveLength(0);
+        await card.updateHass(withState(initial, CAMERA, { attributes: camera.attributes }).hass);
+        expect(card.element.modes.map(m => m.selectionType)).toEqual([SelectionType.ROOM]);
         await card.cleanup();
     });
 });

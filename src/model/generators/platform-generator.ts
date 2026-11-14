@@ -139,8 +139,26 @@ export class PlatformGenerator {
         return this.getPlatformTemplate(platform).map_modes.templates[template];
     }
 
-    public static generateDefaultModes(platform: string): MapModeConfig[] {
-        return this.getPlatformTemplate(platform).map_modes.default_templates.map(dt => ({ template: dt }));
+    /**
+     * The modes a preset without `map_modes` gets.
+     *
+     * With `cameraHasRooms`, the platform's room mode is added when its defaults have none: the
+     * rooms then come from the camera's `rooms` metadata, so room cleaning works without a
+     * hand-written room list on every platform that has a room template. Several platforms
+     * (al-one/hass-xiaomi-miot, Neato, Roomba, ...) have no default mode at all, which left the
+     * map with nothing to select.
+     */
+    public static generateDefaultModes(platform: string, cameraHasRooms = false): MapModeConfig[] {
+        const modes: MapModeConfig[] = this.getPlatformTemplate(platform).map_modes.default_templates
+            .map(dt => ({ template: dt }));
+        if (!cameraHasRooms) return modes;
+        const roomsTemplate = this.getRoomsTemplate(platform);
+        const roomSelection = SelectionType[SelectionType.ROOM];
+        const hasRoomMode = modes.some(m => this.getModeTemplate(platform, m.template as string)?.selection_type === roomSelection);
+        if (roomsTemplate !== undefined && !hasRoomMode) {
+            modes.push({ template: roomsTemplate });
+        }
+        return modes;
     }
 
     public static getTilesFromAttributesTemplates(platform: string): TileFromAttributeTemplate[] {
