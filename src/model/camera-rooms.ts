@@ -6,6 +6,11 @@ export interface CameraRoom {
     id: string;
     /** The room's outline in vacuum coordinates; four corners when the room only has bounds. */
     outline: OutlineType;
+    /**
+     * True when `outline` is the `x0`/`y0`/`x1`/`y1` rectangle rather than the room's own outline:
+     * only such rooms are traced from the map colours.
+     */
+    fromBounds: boolean;
     name?: string;
     icon?: string;
     /** The integration's own label position, when it publishes both coordinates. */
@@ -34,10 +39,12 @@ function toOutline(value: unknown): OutlineType | undefined {
 function toRoom(id: string, raw: unknown): CameraRoom | undefined {
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
     const room = raw as Record<string, unknown>;
-    let outline: OutlineType | undefined;
-    if (room.outline !== undefined && room.outline !== null) {
-        outline = toOutline(room.outline);
-    } else {
+    // The room's own outline when it is a usable list of points; otherwise its bounds, also when the
+    // outline is malformed but the bounds are fine.
+    let outline: OutlineType | undefined =
+        room.outline !== undefined && room.outline !== null ? toOutline(room.outline) : undefined;
+    const fromBounds = outline === undefined;
+    if (!outline) {
         const [x0, y0, x1, y1] = [room.x0, room.y0, room.x1, room.y1].map(toNumber);
         if ([x0, y0, x1, y1].every(v => v !== undefined)) {
             outline = [
@@ -54,6 +61,7 @@ function toRoom(id: string, raw: unknown): CameraRoom | undefined {
     return {
         id,
         outline,
+        fromBounds,
         name: typeof room.name === "string" && room.name.trim() !== "" ? room.name : undefined,
         icon: typeof room.icon === "string" && room.icon !== "" ? room.icon : undefined,
         ...(x !== undefined && y !== undefined ? { x, y } : {}),
@@ -84,7 +92,8 @@ export function cameraRoomsById(raw: unknown): Record<string, unknown> | undefin
  * Reads a camera's `rooms` attribute into usable rooms (see `cameraRoomsById` for the shapes).
  *
  * Entries that are not objects, lack geometry, or carry non-numeric coordinates are skipped, so
- * one broken room never hides the others or breaks the card. Numeric strings are accepted, since
+ * one broken room never hides the others or breaks the card. A malformed outline falls back to the
+ * room's bounds when those are usable. Numeric strings are accepted, since
  * some integrations publish coordinates as text.
  */
 export function readCameraRooms(raw: unknown): CameraRoom[] {

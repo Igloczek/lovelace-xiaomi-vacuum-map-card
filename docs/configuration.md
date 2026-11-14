@@ -251,7 +251,7 @@ the browser blocks the read and the option silently does nothing. Drawing a live
 top of a static image is not supported (upstream #503 / #922 overlap here); the camera source is the
 supported way to get a live map with paths.
 
-For `ROOM` selections, the card can use room IDs and names from the camera's `rooms` attribute, then trace each room's colored region from the map image. Manual room definitions remain available as a fallback when the camera does not provide room metadata or the map has no distinct room colors.
+For `ROOM` selections, the card can use room IDs and names from the camera's `rooms` attribute, then trace each room's colored region from the map image. Rooms may share a color (Valetudo and Dreame use a four-color palette): each room takes the colored area that fits its bounds from the metadata, and never extends into another room's bounds. A tap on the robot, the charger, a room icon or a path drawn over a room selects that room. Manual room definitions remain available as a fallback when the camera does not provide room metadata or the map has no distinct room colors.
 
 #### Cleaning order
 

@@ -106,7 +106,19 @@ export function setCurrentMode(card: XiaomiVacuumMapCard, newModeIndex: number, 
             const staleRooms = [...staleRoomIds]
                 .map(id => configuredRoomsById.get(id))
                 .filter((room): room is RoomConfig => room !== undefined);
-            const roomConfigs = extractedRooms?.length ? [...extractedRooms, ...staleRooms] : configuredRooms;
+            // A configured id the camera does report, but with an entry the card cannot use (null,
+            // no numeric geometry), is a live room without metadata geometry: it keeps its
+            // configured outline instead of vanishing.
+            const extractedIds = new Set((extractedRooms ?? []).map(room => String(room.id)));
+            const unmappedRooms = configuredRooms.filter(
+                room =>
+                    room?.id !== undefined &&
+                    !extractedIds.has(String(room.id)) &&
+                    !staleRoomIds.has(String(room.id)),
+            );
+            const roomConfigs = extractedRooms?.length
+                ? [...extractedRooms, ...unmappedRooms, ...staleRooms]
+                : configuredRooms;
             const detectedRegions = new Map(
                 (card.roomColorDetection?.regions ?? []).map(region => [region.id, region]),
             );
@@ -130,6 +142,7 @@ export function setCurrentMode(card: XiaomiVacuumMapCard, newModeIndex: number, 
                 return new Room(config, createContext(card), {
                     imageOutline: region?.outline,
                     stale: staleRoomIds.has(String(room.id)),
+                    cardHitTest: card.roomColorDetection !== undefined,
                 });
             });
             // A rebuild keeps the click order of the rooms that still exist: the order is the

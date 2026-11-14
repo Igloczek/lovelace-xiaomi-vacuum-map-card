@@ -17,18 +17,26 @@ export interface RoomRenderOptions {
     readonly imageOutline?: Array<[number, number]>;
     /** The configured id is absent from the live camera metadata (issue #928). */
     readonly stale?: boolean;
+    /**
+     * The card resolves taps on this room's outline itself (`roomIdAtImagePoint`), because a colour
+     * detection exists: the outline must not be a click target of its own, or a bounding-box
+     * outline would take taps meant for a detected room it overlaps.
+     */
+    readonly cardHitTest?: boolean;
 }
 
 export class Room extends PredefinedMapObject {
     private readonly _config: RoomConfig;
     private readonly _imageOutline?: Array<[number, number]>;
     private readonly _stale: boolean;
+    private readonly _cardHitTest: boolean;
 
     constructor(config: RoomConfig, context: Context, options: RoomRenderOptions = {}) {
         super(config, context);
         this._config = config;
         this._imageOutline = options.imageOutline;
         this._stale = options.stale === true;
+        this._cardHitTest = options.cardHitTest === true;
         // A stale room exists only to show which configured id no longer matches the map. It must
         // never be selected, including through `default_state` or a state entity, or a service
         // call would clean a room id the camera no longer reports (issue #928).
@@ -51,6 +59,16 @@ export class Room extends PredefinedMapObject {
         return this._stale;
     }
 
+    /** True when the outline was detected from the map image. */
+    public get hasImageOutline(): boolean {
+        return this._imageOutline !== undefined;
+    }
+
+    /** The configured or metadata outline, in vacuum coordinates. */
+    public get outline(): Array<[number, number]> {
+        return (this._config?.outline ?? []).map(point => [point[0], point[1]]);
+    }
+
     public render(): SVGTemplateResult {
         const poly = this._imageOutline
             ? this._imageOutline.map(p => this.realScaled2Point(p))
@@ -66,9 +84,9 @@ export class Room extends PredefinedMapObject {
         return svg`
             <g class="room-wrapper ${highlighted ? "selected" : ""} ${runOrder > 0 ? "running" : ""} ${this._stale ? "room-stale" : ""}
             room-${`${this._config.id}`.replace(/[^a-zA-Z0-9_\-]/gm, "_")}-wrapper">
-                <polygon class="room-outline ${this._imageOutline || this._stale ? "" : "clickable"}"
+                <polygon class="room-outline ${this._imageOutline || this._stale || this._cardHitTest ? "" : "clickable"}"
                          points="${poly.map(p => p.join(", ")).join(" ")}"
-                         @click="${this._imageOutline || this._stale
+                         @click="${this._imageOutline || this._stale || this._cardHitTest
                              ? undefined
                              : async (): Promise<void> => this.click()}">
                 </polygon>

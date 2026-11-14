@@ -192,6 +192,8 @@ export class XiaomiVacuumMapCard extends LitElement {
     delayedCallbacks = new Set<number>();
     roomColorDetection?: RoomColorDetection;
     lastRoomColorDetectionKey?: string;
+    /** When `roomColorDetection` was traced from the pixels (`Date.now()`), for its reuse limit. */
+    roomColorDetectionAt?: number;
     mapRefreshState?: MapRefreshState;
     trailingMapRefreshPending = false;
     /** When the current camera snapshot started loading; cleared by its `load` or `error`. */
