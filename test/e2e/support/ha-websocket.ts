@@ -25,9 +25,25 @@ export interface RealHass {
 
 const AUTH_FILE = path.join(__dirname, "..", ".auth", "token.json");
 
+/**
+ * An access token for the setup script's session. Access tokens expire after 30 minutes, so the
+ * refresh token is exchanged first, as the frontend does; the stored access token is the fallback.
+ */
+export async function freshAccessToken(base = process.env.E2E_HA_URL || "http://localhost:8123"): Promise<string> {
+    const saved = JSON.parse(fs.readFileSync(AUTH_FILE, "utf8")) as { access_token: string; refresh_token?: string };
+    if (!saved.refresh_token) return saved.access_token;
+    const response = await fetch(`${base}/auth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: saved.refresh_token, client_id: `${base}/` }),
+    });
+    if (!response.ok) return saved.access_token;
+    return ((await response.json()) as { access_token: string }).access_token;
+}
+
 export async function connectRealHass(): Promise<RealHass> {
     const base = process.env.E2E_HA_URL || "http://localhost:8123";
-    const token = (JSON.parse(fs.readFileSync(AUTH_FILE, "utf8")) as { access_token: string }).access_token;
+    const token = await freshAccessToken(base);
     const socket = new WebSocket(`${base.replace(/^http/, "ws")}/api/websocket`);
     let nextId = 1;
     const pending = new Map<number, { resolve: (m: Record<string, unknown>) => void; reject: (e: unknown) => void }>();

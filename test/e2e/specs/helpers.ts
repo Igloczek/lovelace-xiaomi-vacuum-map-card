@@ -2,6 +2,8 @@ import { expect, test as base, type Page } from "@playwright/test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { freshAccessToken } from "../support/ha-websocket";
+
 /**
  * Shared login and card helpers for the real-instance suite.
  *
@@ -136,7 +138,8 @@ export async function resetCameraRequests(page: Page): Promise<void> {
 
 /** Asks the fixture camera to push a new map image, like an integration would. */
 export async function bumpCamera(page: Page): Promise<void> {
-    const token = JSON.parse(fs.readFileSync(path.join(AUTH_DIR, "token.json"), "utf8")).access_token as string;
+    // The saved access token expires after 30 minutes; a fresh one comes from the refresh token.
+    const token = await freshAccessToken();
     const response = await page.request.post("/api/services/map_fixture/bump", {
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         data: {},
@@ -145,11 +148,13 @@ export async function bumpCamera(page: Page): Promise<void> {
 }
 
 export async function resetCamera(page: Page): Promise<void> {
-    const token = JSON.parse(fs.readFileSync(path.join(AUTH_DIR, "token.json"), "utf8")).access_token as string;
-    await page.request.post("/api/services/map_fixture/set_image", {
+    const token = await freshAccessToken();
+    const response = await page.request.post("/api/services/map_fixture/set_image", {
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         data: { path: "/config/map_fixture.png" },
     });
+    // A failed reset left the camera re-mapped and the next spec waited 90 s for rooms it never got.
+    if (!response.ok()) throw new Error(`camera reset failed: ${response.status()}`);
 }
 
 /** Saves a screenshot into the committed-or-linked artifacts directory. */
@@ -162,8 +167,8 @@ export async function shot(page: Page, name: string): Promise<string> {
 
 /** Sends one Home Assistant websocket command with the setup token. */
 export async function wsSend<T = unknown>(type: string, payload: Record<string, unknown> = {}): Promise<T> {
-    const token = JSON.parse(fs.readFileSync(path.join(AUTH_DIR, "token.json"), "utf8")).access_token as string;
     const base = process.env.E2E_HA_URL || "http://localhost:8123";
+    const token = await freshAccessToken(base);
     return new Promise<T>((resolve, reject) => {
         const socket = new WebSocket(`${base.replace("http", "ws")}/api/websocket`);
         let id = 0;
