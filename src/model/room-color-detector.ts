@@ -1,6 +1,6 @@
 import { MapExtractorRoom, PointType } from "../types/types";
 import { CoordinatesConverter } from "./map_objects/coordinates-converter";
-import { metadataRoomGeometry } from "./room-config";
+import { CameraRoom, readCameraRooms } from "./camera-rooms";
 
 interface PixelBounds {
     readonly left: number;
@@ -204,12 +204,9 @@ export class RoomColorDetector {
         rooms: Record<string, MapExtractorRoom> | undefined,
         converter: CoordinatesConverter,
     ): string {
-        const shapes =
-            rooms && typeof rooms === "object" && !Array.isArray(rooms)
-                ? Object.keys(rooms)
-                      .sort()
-                      .map(id => [id, metadataRoomGeometry(rooms[id])?.outline ?? null])
-                : [];
+        const shapes = readCameraRooms(rooms)
+            .map(room => [room.id, room.outline] as const)
+            .sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0));
         const origin = converter.vacuumToMap(0, 0);
         const unitX = converter.vacuumToMap(1000, 0);
         const unitY = converter.vacuumToMap(0, 1000);
@@ -267,9 +264,8 @@ export class RoomColorDetector {
         rooms: Record<string, MapExtractorRoom>,
         converter: CoordinatesConverter,
     ): RoomColorDetection | undefined {
-        if (!rooms || typeof rooms !== "object" || Array.isArray(rooms)) return undefined;
-        const entries = Object.keys(rooms)
-            .map(id => this._getEntry(id, rooms[id], imageData, converter))
+        const entries = readCameraRooms(rooms)
+            .map(room => this._getEntry(room, imageData, converter))
             .filter((entry): entry is RoomEntry => entry !== undefined);
         const candidates: RoomCandidate[] = entries
             .filter(entry => entry.detectable && entry.colorKeys.length > 0)
@@ -432,20 +428,12 @@ export class RoomColorDetector {
         return (area.bounds.top + y) * imageWidth + area.bounds.left + x;
     }
 
-    private static _getEntry(
-        id: string,
-        room: unknown,
-        imageData: ImageDataLike,
-        converter: CoordinatesConverter,
-    ): RoomEntry | undefined {
-        // Camera metadata is integration data: skip an entry that is not a room with usable geometry.
-        const geometry = metadataRoomGeometry(room);
-        if (!geometry) return undefined;
-        const polygon = geometry.outline.map(point => converter.vacuumToMap(point[0], point[1]));
+    private static _getEntry(room: CameraRoom, imageData: ImageDataLike, converter: CoordinatesConverter): RoomEntry | undefined {
+        const polygon = room.outline.map(point => converter.vacuumToMap(point[0], point[1]));
         if (polygon.some(point => !Number.isFinite(point[0]) || !Number.isFinite(point[1]))) return undefined;
         const bounds = this._getBounds(polygon, imageData.width, imageData.height);
         if (!bounds) return undefined;
-        return { id, bounds, polygon, detectable: geometry.fromBounds, colorKeys: this._colorKeysIn(bounds, imageData) };
+        return { id: room.id, bounds, polygon, detectable: room.fromBounds, colorKeys: this._colorKeysIn(bounds, imageData) };
     }
 
     /** The colours that cover at least 8% of a room's bounds, most frequent first. */

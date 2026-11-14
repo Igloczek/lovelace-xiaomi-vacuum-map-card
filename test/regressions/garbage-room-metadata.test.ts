@@ -62,7 +62,7 @@ describe("garbage camera rooms metadata", () => {
             "2": "bedroom",
             "3": { outline: "not a list", name: "Broken outline" },
             "4": { outline: [[1, 2], ["a", 3], [5]], name: "Broken points" },
-            "5": { x0: "100", y0: 100, x1: 300, y1: 300, name: "String bound" },
+            "5": { x0: "left", y0: 100, x1: 300, y1: 300, name: "Text bound" },
             "6": { x0: Number.NaN, y0: 0, x1: 10, y1: 10 },
             "7": extractorRoom(1000, 200, 1700, 700, "Living room"),
             // A broken outline next to usable bounds: the bounds still describe the room.
@@ -83,7 +83,7 @@ describe("garbage camera rooms metadata", () => {
 
     it.each([
         ["a string", "kitchen,bedroom,hall"],
-        ["a list", Array.from({ length: 13 }, () => extractorRoom(200, 200, 800, 700, "Kitchen"))],
+        ["a list without room ids", Array.from({ length: 13 }, () => extractorRoom(200, 200, 800, 700, "Kitchen"))],
         ["a number", 42],
     ])("treats rooms given as %s as no metadata", async (_kind, rooms) => {
         // Id 12 is a character index of the string and an index of the list: reading those as

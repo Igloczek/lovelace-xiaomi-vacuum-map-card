@@ -351,13 +351,22 @@ describe("camera rooms metadata", () => {
             "2": roomBounds([62, 10, 109, 49]),
             "3": null,
             "4": "kitchen",
-            "5": { x0: "100", y0: 100, x1: 300, y1: 300 },
+            "5": { x0: "left", y0: 100, x1: 300, y1: 300 },
             "6": { x0: Number.NaN, y0: 0, x1: 10, y1: 10 },
             "7": { outline: "not an outline" },
             "8": { x0: 1e12, y0: 1e12, x1: 2e12, y1: 2e12 },
         } as unknown as Record<string, MapExtractorRoom>;
         const detection = detect(twoRoomMap(), garbage);
         expect(detection?.regions.map(found => found.id).sort()).toEqual(["1", "2"]);
+    });
+
+    it("accepts bounds published as numeric text", () => {
+        const text = (rect: Rect): MapExtractorRoom => {
+            const bounds = roomBounds(rect);
+            return { ...bounds, x0: String(bounds.x0), y0: String(bounds.y0), x1: String(bounds.x1), y1: String(bounds.y1) } as unknown as MapExtractorRoom;
+        };
+        const detection = detect(twoRoomMap(), { "1": text([10, 10, 59, 49]), "2": roomBounds([62, 10, 109, 49]) });
+        expectOutline(detection, "1", [10, 10, 59, 49]);
     });
 
     it("accepts bounds given in either corner order", () => {

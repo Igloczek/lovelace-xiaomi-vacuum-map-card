@@ -103,10 +103,10 @@
   overlaps, and a detected room no longer takes taps meant for it.
 - While the vacuum cleans, a newer map snapshot of the same rooms reuses the room detection
   instead of tracing every room again.
-- Room metadata the card cannot use (a `null` or text entry, an outline that is not a list of
-  points, a `rooms` attribute that is not an object) is skipped instead of breaking the card. A
-  room with a broken outline but usable bounds uses its bounds, and a configured room whose
-  metadata entry is unusable keeps its configured outline.
+- A room whose metadata outline is broken but whose bounds are usable keeps its bounds, a
+  configured room whose metadata entry is unusable keeps its configured outline instead of
+  vanishing, and room colour detection reads the metadata the same way as the rest of the card
+  (numeric text, lists keyed by room id).
 
 ## 1.0.7
 

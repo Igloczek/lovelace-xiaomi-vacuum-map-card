@@ -3,7 +3,7 @@ import type { RoomConfig, RoomConfigEventData } from "../types/types";
 import { MapExtractorRoom } from "../types/types";
 import { cameraRefreshKey } from "../model/map-refresh-policy";
 import { RoomColorDetector } from "../model/room-color-detector";
-import { findStaleRoomIds, metadataRoomOutline, roomMetadata } from "../model/room-config";
+import { findStaleRoomIds } from "../model/room-config";
 import { roomIdAtImagePoint } from "../model/room-hit-test";
 import { MapMode } from "../model/map_mode/map-mode";
 import { SelectionType } from "../model/map_mode/selection-type";
