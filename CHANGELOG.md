@@ -11,6 +11,13 @@
   defaults, so rooms can be cleaned without generating a config. Platforms whose room template
   needs hand-written variables or takes room names keep their defaults. A camera that is briefly
   unavailable keeps the mode and the selection.
+### Changed
+
+- Rooms are numbered only where the platform makes the vacuum follow the order: Valetudo,
+  ValetudoRE and roomba_plus. Elsewhere, including Xiaomi Miio, Roborock, Dreame and Viomi, selected
+  rooms are highlighted without numbers. A ROOM map mode can set `cleaning_order: true` or `false`.
+- A run is no longer locked while the vacuum is paused or `unavailable`; a tap starts a new
+  selection.
 
 ### Fixed
 
@@ -89,6 +96,18 @@
 
 - `id_type` and Jinja templates in `service_call_schema` are documented, and the Deebot page names the
   service it calls.
+- The run is on the map from the moment **Start** sends the call, not only once the integration
+  answers; if the call fails the run is removed and the selection comes back in order.
+- `unavailable` or `unknown` from a polling integration no longer ends a run mid-clean.
+- A `cleaning` or `returning` state that was already shown when **Start** was pressed no longer
+  counts as the start, so a lagging `docked` does not end the run before the vacuum begins.
+- A run that never starts ends after three minutes even when Home Assistant sends no further
+  update, also after a reload.
+- Several cards or tabs showing the same vacuum show the same run, and a card no longer deletes a
+  run another card started.
+- A run is shown only in the ROOM mode it was started from.
+- While a start is pending, the icons treat the vacuum as cleaning, so the play icon does not offer
+  a full clean during the ~30 s a polling integration needs to report the start.
 
 ## 1.0.7
 

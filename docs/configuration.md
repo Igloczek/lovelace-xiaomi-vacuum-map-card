@@ -255,17 +255,32 @@ For `ROOM` selections, the card can use room IDs and names from the camera's `ro
 
 #### Cleaning order
 
-Rooms are sent in the order you tap them, and each selected room shows its number. After **Start**
-the rooms stay highlighted with their numbers, exactly as they were selected, while the vacuum
-works through them (`cleaning`, `paused` or `returning`); the rooms are locked meanwhile, so the
-order cannot change mid-run. The run ends as soon as the vacuum is done (docked, idle, error), or
-after three minutes if it never starts. Until the vacuum reports the start, which polling
-integrations do tens of seconds late, a tap on a room starts a new selection instead. The run is
-remembered per vacuum in the browser, so a reload keeps it.
+Rooms are sent in the order you tap them. Where the platform makes the vacuum follow that order,
+each selected room shows its number; elsewhere the selected rooms are highlighted without numbers,
+because a number would promise an order the vacuum does not keep. The
+[platform list](platforms.md#cleaning-order-per-platform) says which templates number the rooms.
+Set `cleaning_order: true` on a ROOM map mode when your own service call makes the vacuum follow
+the order, or `false` to turn the numbers off.
 
-Some vacuums plan their own route and ignore the order of a multi-room command; the Viomi V8
-(`set_mode_withroom`) is one. On those the numbers show the order that was sent, not the order the
-vacuum cleans in.
+After **Start** the rooms stay highlighted, numbers included, exactly as they were selected. The
+run is on the map from the moment the call is sent; if the call fails, it is removed and the
+selection comes back so you can retry. While the vacuum works through the run (`cleaning` or
+`returning`) the rooms are locked, so the order cannot change mid-run. Before the vacuum reports
+the start, which polling integrations do tens of seconds late, while it is paused, and while its
+state is `unavailable` or `unknown`, the run stays on the map but a tap on a room starts a new
+selection instead. The run ends as soon as the vacuum is done (docked, idle, error), after three
+minutes if it never starts, and in any case after 12 hours.
+
+A state that was already shown when you pressed **Start** does not count as the start: a polling
+integration can still show the previous job `returning` and only then report the new rooms. If
+the vacuum was already cleaning and nothing changes, the run counts as started after three
+minutes. While the start is pending, the card's icons read the vacuum as `cleaning`, so the play
+icon does not offer a full clean for a job that is already starting.
+
+The run is remembered per vacuum in the browser and shared by every card and tab of that browser,
+so a reload keeps it. It is not shared between browsers or devices, and the card cannot tell that
+another app replaced the job with a different one. A vacuum that docks to recharge mid-run ends
+the run.
 
 ### Cropping options
 
@@ -420,6 +435,7 @@ sensor whose display unit was changed in Home Assistant still shows the right nu
 | `coordinates_rounding`  | boolean | no              | `true`  | Enables coordinates rounding                                                         |
 | `max_selections`        | integer | no              | 1       | Maximal number of selections                                                         |
 | `id_type`               | string  | no              | -       | `number` or `string`: the type room ids are sent as in a `ROOM` mode<sup>4</sup>      |
+| `cleaning_order`        | boolean | no              | template, else `false` | ROOM modes: the vacuum cleans the rooms in the order they are sent, so they are numbered ([cleaning order](#cleaning-order)) |
 | `repeats_type`          | string  | no              | `NONE`  | Type of repeats inclusion, one of [supported ones](#supported-repeats-types)         |
 | `max_repeats`           | integer | no              | 1       | Maximal value of repeats                                                             |
 | `variables`             | object  | no              | -       | Variables that should be passed to `service_call_schema`                             |
