@@ -94,13 +94,13 @@ export function rollBackActiveRoomRun(
     card: XiaomiVacuumMapCard,
     run: ActiveRoomRun,
     mode: MapMode,
-    restoreSelection: (roomIds: string[]) => void,
+    restoreSelection: () => void,
 ): void {
     clearActiveRoomRunIf(run.entity, run);
     advanceCardActiveRun(card);
     if (card._getCurrentMode() !== mode || card._getCurrentPreset()?.entity !== run.entity) return;
     if (card.selectedRooms.length > 0) return;
-    restoreSelection(run.roomIds);
+    restoreSelection();
     card.requestUpdate();
 }
 

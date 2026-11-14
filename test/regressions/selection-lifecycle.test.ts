@@ -52,6 +52,9 @@ function mode(config: Partial<MapModeConfig> & { selection_type: string }): MapM
         icon: "mdi:broom",
         repeats_type: "NONE",
         service_call_schema: SERVICE_CALL,
+        // The order numbers are asserted below; a custom service call shows them only when the
+        // mode declares that the vacuum follows the order (`cleaning_order`, PR #36).
+        ...(config.selection_type === "ROOM" ? { cleaning_order: true } : {}),
         ...config,
     } as MapModeConfig;
 }
