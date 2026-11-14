@@ -21,6 +21,7 @@ suite passes against the release candidate; screenshots are written to the gitig
 | `selection-lifecycle.spec.ts` | Two rooms are tapped in a non-id order; turning the third room's `state_entity` (`input_boolean.e2e_clean_living_room`) on adds it at the end, a camera bump keeps the order, and turning the boolean off removes only that room, with the badges renumbered to match. |
 | `service-call-contract.spec.ts` | Every platform template × map mode × string/number room id is built with the card's `MapMode` in Node and checked against the integration's service schema (`test/contract/service-contracts.ts`); modes with `evaluate_data_as_template` are rendered by this Home Assistant's `render_template`, the setup platforms' `persistent_notification.create` and every `vacuum.send_command` template are called for real (on the demo vacuum), and a template error rejects instead of hanging. |
 | `stale-rooms.spec.ts` | The fixture renumbers its segments while keeping the geometry: the card marks the configured rooms stale, warns with their ids, refuses to select them, and still selects the new live id. |
+| `run-lifecycle.spec.ts` | Against a fake vacuum that reports late, plans its own route, ignores a command while heading home, docks, fails a call and goes unavailable: the run is on the map from Start, the play icon is hidden while the start is pending, rooms lock only once the start is reported, the run ends when the vacuum docks, a failed call gives the selection back, `unavailable` keeps the run without locking, a stale `returning` is not taken as the start, a second tab shows the run, and the card does not number rooms for a vacuum that ignores the order. |
 
 ## What it does not cover
 
@@ -66,6 +67,13 @@ request or release when a behaviour changes.
 committed synthetic map through `/api/map_fixture/image`, counts every request, exposes the room
 metadata the card reads, and offers `map_fixture.bump` (a new map, like an integration would push)
 and `map_fixture.set_image`. It is never part of the released card.
+
+The same integration provides `vacuum.fake_vacuum` (`map_fixture/vacuum.py`), a vacuum that behaves
+the way real ones misbehave: it reports each change `lag` seconds late (a polling integration such
+as xiaomi_miot lags ~30 s), cleans a multi-room `app_segment_clean` in its own order (recorded in
+`cleaned_rooms`), ignores a command while returning, docks after a job, and can fail the next call
+or go unavailable. `map_fixture.vacuum_configure` sets `lag`, `room_seconds`, `return_seconds`,
+`fail_next` and `available`; `map_fixture.vacuum_reset` puts it into an activity at once.
 
 `connect-github.cjs` writes the token into the ignored Home Assistant state file
 (`test/e2e/ha/config/.storage`), because the Marketplace device flow cannot run headless. Nothing

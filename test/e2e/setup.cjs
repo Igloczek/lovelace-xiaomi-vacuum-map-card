@@ -214,6 +214,29 @@ function card(overrides = {}) {
     };
 }
 
+/**
+ * The shared ROOM mode sends `send_command` without a target, which Home Assistant accepts and
+ * applies to no entity. The run spec needs the call to reach the fake vacuum.
+ */
+function runCard() {
+    const base = card({ entity: "vacuum.fake_vacuum" });
+    const [rooms, ...others] = base.map_modes;
+    const schema = rooms.service_call_schema;
+    return {
+        ...base,
+        map_modes: [
+            {
+                ...rooms,
+                service_call_schema: {
+                    ...schema,
+                    service_data: { ...schema.service_data, entity_id: "[[entity_id]]" },
+                },
+            },
+            ...others,
+        ],
+    };
+}
+
 async function main() {
     if (process.argv.includes("--reset")) {
         fs.rmSync(TOKEN_FILE, { force: true });
@@ -239,6 +262,16 @@ async function main() {
                         cards: [card({ map_view: { scale: 2.5, x: 40, y: -20, rotation: 90 } })],
                     },
                 ],
+            },
+        },
+        {
+            // The fake vacuum (map_fixture/vacuum.py) reports late, plans its own route, ignores
+            // commands while returning, and can fail or go unavailable: run-lifecycle.spec.ts.
+            url_path: "e2e-run",
+            title: "E2E run",
+            config: {
+                title: "E2E run",
+                views: [{ title: "Run", path: "run", cards: [runCard()] }],
             },
         },
         {

@@ -110,4 +110,18 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 entity.set_rooms(rooms)
 
     hass.services.async_register(DOMAIN, "set_rooms", set_rooms)
+
+    async def vacuum_configure(call: ServiceCall) -> None:
+        """Set the fake vacuum's lag, timings, next-call failure and availability."""
+        for entity in hass.data.get("map_fixture_vacuums", []):
+            entity.configure(dict(call.data))
+
+    hass.services.async_register(DOMAIN, "vacuum_configure", vacuum_configure)
+
+    async def vacuum_reset(call: ServiceCall) -> None:
+        """Put the fake vacuum into a state at once, reported without lag."""
+        for entity in hass.data.get("map_fixture_vacuums", []):
+            entity.reset(call.data.get("activity", "docked"))
+
+    hass.services.async_register(DOMAIN, "vacuum_reset", vacuum_reset)
     return True
