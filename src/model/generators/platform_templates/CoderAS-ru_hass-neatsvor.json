@@ -62,7 +62,9 @@
                 "icon": "mdi:history",
                 "unique_id_regex": "cleaning_time_",
                 "label": "tile.cleaning_time.label",
-                "unit": "unit.minute_shortcut"
+                "unit": "unit.minute_shortcut",
+                "duration_unit": "min",
+                "multiplier": 1
             }
         ]
     },

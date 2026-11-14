@@ -268,8 +268,11 @@ export class XiaomiVacuumMapCard extends LitElement {
         this.mapViewCardKey = undefined;
         this.mapViewCardKeyPath = undefined;
         this.restoredMapViewKey = undefined;
-        if (isOldConfig(config)) {
-            this.oldConfig = true;
+        // Both flags describe this config only: the editor calls `setConfig` on every keystroke,
+        // so a state left over from an earlier, old-style or invalid config must not stick.
+        this.oldConfig = isOldConfig(config);
+        this.configErrors = [];
+        if (this.oldConfig) {
             return;
         }
         this.configErrors = validateConfig(this.config);

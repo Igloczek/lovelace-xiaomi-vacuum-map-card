@@ -18,6 +18,10 @@
         "vacuum_follow_path": "Ścieżka"
     },
     "validation": {
+        "type": {
+            "mapping": "Nieprawidłowa konfiguracja: {0} musi być mapą (klucz: wartość)",
+            "list": "Nieprawidłowa konfiguracja: {0} musi być listą"
+        },
         "preset": {
             "entity": {
                 "missing": "Brakujący parametr: entity"

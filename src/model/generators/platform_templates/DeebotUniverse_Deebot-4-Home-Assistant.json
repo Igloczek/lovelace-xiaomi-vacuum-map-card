@@ -75,7 +75,9 @@
                 "unique_id_regex": "_stats_time",
                 "label": "tile.cleaning_time.label",
                 "icon": "mdi:timer-sand",
-                "unit": "unit.minute_shortcut"
+                "unit": "unit.minute_shortcut",
+                "duration_unit": "min",
+                "multiplier": 1
             },
             {
                 "tile_id": "cleaned_area",
@@ -91,13 +93,6 @@
                 "icon": "mdi:water"
             },
             {
-                "tile_id": "cleaning_time",
-                "unique_id_regex": "_stats_time",
-                "label": "tile.cleaning_time.label",
-                "icon": "mdi:timer-sand",
-                "unit": "unit.minute_shortcut"
-            },
-            {
                 "tile_id": "total_cleaned_area",
                 "unique_id_regex": "_stats_total_area",
                 "label": "tile.total_cleaned_area.label",
@@ -105,11 +100,13 @@
                 "unit": "unit.meter_squared_shortcut"
             },
             {
-                "tile_id": "cleaning_time",
+                "tile_id": "total_cleaning_time",
                 "unique_id_regex": "_stats_total_time",
                 "label": "tile.total_cleaning_time.label",
                 "icon": "mdi:timer-sand",
-                "unit": "unit.hour_shortcut"
+                "unit": "unit.hour_shortcut",
+                "duration_unit": "h",
+                "multiplier": 1
             },
             {
                 "tile_id": "cleaning_count",
