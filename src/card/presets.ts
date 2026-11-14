@@ -173,23 +173,29 @@ export function getModes(card: XiaomiVacuumMapCard, config: CardPresetConfig) {
 }
 
 /**
- * Rebuilds the default modes of a preset without `map_modes` when the camera's room metadata
- * appears or disappears after the preset was set (a camera that was unavailable at startup, or a
- * map that gains rooms after the first cleaning). Configured `map_modes` are never touched.
- * The room mode is appended last, so the selected mode keeps its index.
+ * Adds the generated room mode to a preset without `map_modes` once the camera's room metadata
+ * appears after the preset was set (a camera that was unavailable at startup, or a map that gains
+ * rooms after the first cleaning). Configured `map_modes` are never touched.
+ *
+ * It only ever adds. A camera without `rooms` (unavailable, restarting) says nothing about the
+ * rooms - the same rule as stale-room detection, where missing metadata means unknown - so a
+ * room mode that is already there stays, and with it the selected mode and the selection. The
+ * existing mode objects are kept and the new mode is appended, so the current mode is untouched;
+ * it is only set up when there was no mode before.
  */
 export function refreshDefaultModes(card: XiaomiVacuumMapCard): void {
     const preset = card.currentPreset;
     if (!preset || !card.config || card.configErrors.length > 0 || preset.map_modes !== undefined) return;
+    if (!cameraHasRooms(card, preset)) return;
     // Runs on every hass update, so compare template names before building any mode.
     const platform = PlatformGenerator.getPlatformName(preset.vacuum_platform);
-    const expected = PlatformGenerator.generateDefaultModes(platform, cameraHasRooms(card, preset))
-        .map(m => m.template ?? "").join(",");
-    if (expected === card.modes.map(m => m.config.template ?? "").join(",")) return;
-    const modes = getModes(card, preset);
-    card.modes = modes;
-    const index = card.selectedMode < modes.length ? card.selectedMode : 0;
-    if (modes.length > 0) setCurrentMode(card, index, false);
+    const present = new Set(card.modes.map(m => m.config.template));
+    const missing = PlatformGenerator.generateDefaultModes(platform, true)
+        .filter(m => !present.has(m.template));
+    if (missing.length === 0) return;
+    const hadModes = card.modes.length > 0;
+    card.modes = [...card.modes, ...missing.map(m => new MapMode(platform, m, card.config.language))];
+    if (!hadModes) setCurrentMode(card, 0, false);
 }
 
 export function executePresetsActivation(card: XiaomiVacuumMapCard) {

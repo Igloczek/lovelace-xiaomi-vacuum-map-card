@@ -57,6 +57,18 @@ function validateList<T>(
     return value.flatMap(item => validateItem(item as T));
 }
 
+/**
+ * The offending value of an enum option written by name (`selection_type: ROOM`), or `undefined`
+ * when it is a valid name or absent. `null` and `""` (an empty YAML key) are absent and fall back
+ * to the default, as upstream did. A number is rejected even where it indexes the enum: the
+ * TypeScript enum maps `2` to `ROOM`, so `selection_type: 2` would silently mean a room mode.
+ */
+function validateEnumName(value: unknown, values: object): string | undefined {
+    if (value === undefined || value === null || value === "") return undefined;
+    const name = String(value);
+    return typeof value === "string" && Number.isNaN(Number(name)) && name in values ? undefined : name;
+}
+
 function validateConditions(conditions: unknown, field: string): TranslatableString[] {
     return validateList<unknown>(conditions, field, condition =>
         isMapping(condition) ? [] : [notMapping(field)],
@@ -276,11 +288,13 @@ function validateMapModeConfig(
         return [["validation.preset.map_modes.template.invalid", "{0}", config.template]];
     }
     const errors: TranslatableString[] = [];
-    if (config.selection_type !== undefined && !(String(config.selection_type) in SelectionType)) {
-        return [["validation.preset.map_modes.selection_type.invalid", "{0}", String(config.selection_type)]];
+    const selectionTypeError = validateEnumName(config.selection_type, SelectionType);
+    if (selectionTypeError !== undefined) {
+        return [["validation.preset.map_modes.selection_type.invalid", "{0}", selectionTypeError]];
     }
-    if (config.repeats_type !== undefined && !(String(config.repeats_type) in RepeatsType)) {
-        return [["validation.preset.map_modes.repeats_type.invalid", "{0}", String(config.repeats_type)]];
+    const repeatsTypeError = validateEnumName(config.repeats_type, RepeatsType);
+    if (repeatsTypeError !== undefined) {
+        return [["validation.preset.map_modes.repeats_type.invalid", "{0}", repeatsTypeError]];
     }
     if (config.predefined_selections !== undefined && config.predefined_selections !== null
         && !Array.isArray(config.predefined_selections)) {
@@ -341,14 +355,17 @@ function validatePreset(config: CardPresetConfig, nameRequired: boolean, languag
     if (!platformsWithDefaultCalibration.includes(vacuumPlatform)) {
         mandatoryFields.set("calibration_source", "validation.preset.calibration_source.missing");
     }
-    const params = Object.keys(config);
+    // An empty YAML key (`calibration_source:`) is `null`, which counts as missing.
+    const params = Object.keys(config).filter(k => (config as unknown as Record<string, unknown>)[k] != null);
     mandatoryFields.forEach((v: string, k: string) => {
         if (!params.includes(k)) {
             errors.push(v);
         }
     });
-    if (params.includes("map_source")) validateMapSource(config.map_source).forEach(e => errors.push(e));
-    if (params.includes("calibration_source")) validateCalibrationSource(config.calibration_source as CalibrationSourceConfig).forEach(e => errors.push(e));
+    if (config.map_source != null) validateMapSource(config.map_source).forEach(e => errors.push(e));
+    // An empty `calibration_source:` key is YAML `null`: absent, as upstream treated it.
+    if (config.calibration_source !== undefined && config.calibration_source !== null)
+        validateCalibrationSource(config.calibration_source as CalibrationSourceConfig).forEach(e => errors.push(e));
     if (config.vacuum_platform
         && !PlatformGenerator.getPlatforms().includes(PlatformGenerator.getPlatformName(config.vacuum_platform))
     )

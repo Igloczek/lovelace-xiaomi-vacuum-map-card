@@ -122,3 +122,32 @@ describe("malformed YAML produces messages, not crashes", () => {
         await card.cleanup();
     });
 });
+
+describe("empty values master accepted stay accepted", () => {
+    const zone = { template: "vacuum_clean_zone" };
+    it.each([
+        ["repeats_type: null", { map_modes: [{ ...zone, repeats_type: null }] }],
+        ["selection_type: null", { map_modes: [{ ...zone, selection_type: null }] }],
+        ["selection_type: empty", { map_modes: [{ ...zone, selection_type: "" }] }],
+        ["repeats_type: empty", { map_modes: [{ ...zone, repeats_type: "" }] }],
+        ["predefined_selections: null", { map_modes: [{ template: "vacuum_clean_segment", predefined_selections: null }] }],
+        ["calibration_source: null on a built-in-calibration platform", { vacuum_platform: "Roomba", calibration_source: null }],
+        ["icons: null", { icons: null }],
+        ["tiles: null", { tiles: null }],
+    ])("%s", (_name, patch) => {
+        expect(validateConfig(config(patch))).toEqual([]);
+    });
+
+    it.each([
+        ["selection_type: 2", { map_modes: [{ ...zone, selection_type: 2 }] }, "Invalid selection type: 2"],
+        ["selection_type: '2'", { map_modes: [{ ...zone, selection_type: "2" }] }, "Invalid selection type: 2"],
+        ["repeats_type: 1", { map_modes: [{ ...zone, repeats_type: 1 }] }, "Invalid repeats type: 1"],
+        ["selection_type: ZONE", { map_modes: [{ ...zone, selection_type: "ZONE" }] }, "Invalid selection type: ZONE"],
+        // Master accepted this and then showed "Invalid calibration": dreame has no built-in calibration.
+        ["calibration_source: null where calibration is needed", {
+            vacuum_platform: "Tasshack/dreame-vacuum", calibration_source: null,
+        }, "Missing property: calibration_source"],
+    ])("%s is reported with its value", (_name, patch, message) => {
+        expect(validateConfig(config(patch))).toEqual([message]);
+    });
+});

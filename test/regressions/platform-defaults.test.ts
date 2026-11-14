@@ -8,6 +8,9 @@ import { SelectionType } from "../../src/model/map_mode/selection-type";
 import type { XiaomiVacuumMapCardConfig } from "../../src/types/types";
 import {
     cameraEntity,
+    fixtureConfig,
+    fixtureHass,
+    loadSyntheticFixture,
     mockHass,
     mountCard,
     settle,
@@ -278,6 +281,66 @@ describe("room metadata that arrives after the card loaded", () => {
         expect(card.element.modes).toHaveLength(0);
         await card.updateHass(withState(initial, CAMERA, { attributes: camera.attributes }).hass);
         expect(card.element.modes.map(m => m.selectionType)).toEqual([SelectionType.ROOM]);
+        expect(card.element.selectedMode).toBe(0);
+        expect(card.element._getCurrentMode()).toBe(card.element.modes[0]);
+        await card.cleanup();
+    });
+});
+
+describe("a camera that briefly loses its rooms", () => {
+    // An unavailable camera publishes no attributes. That says nothing about the rooms, the same
+    // rule as stale-room detection (missing metadata means unknown), so the generated room mode,
+    // the selected mode and the selection must all survive the gap.
+    it("keeps the room mode, the selected mode and the selected room", async () => {
+        const { setCurrentMode } = await import("../../src/card/selection");
+        const fixture = loadSyntheticFixture();
+        const hass = fixtureHass(fixture);
+        const card = await mountCard({ ...fixtureConfig(fixture), persist_map_view: false }, hass);
+        await card.fireMapLoad();
+        expect(card.element.modes.map(m => m.config.template)).toEqual([
+            "vacuum_clean_zone",
+            "vacuum_goto",
+            "vacuum_clean_segment",
+        ]);
+        setCurrentMode(card.element, 2, false);
+        await settle(card.element);
+        const outline = card.shadowRoot.querySelector(".room-1-wrapper .room-outline");
+        outline?.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+        await settle(card.element);
+        const selected = (): unknown[] => card.element._getSelection(card.element._getCurrentMode()).selection;
+        expect(selected()).toEqual([1]);
+        const roomMode = card.element.modes[2];
+
+        const camera = hass.states[fixture.camera.entity_id];
+        const unavailable = withState(hass, camera.entity_id, { state: "unavailable", attributes: {} }).hass;
+        await card.updateHass(unavailable);
+        expect(card.element.selectedMode).toBe(2);
+        expect(card.element.modes[2]).toBe(roomMode);
+        expect(selected()).toEqual([1]);
+
+        await card.updateHass(withState(unavailable, camera.entity_id, camera).hass);
+        expect(card.element.selectedMode).toBe(2);
+        expect(card.element.modes).toHaveLength(3);
+        expect(selected()).toEqual([1]);
+        await card.cleanup();
+    });
+
+    it("a zone being drawn in the first mode survives the room mode being added", async () => {
+        const world = platformWorld("Xiaomi Miio", () => ["5", {}]);
+        const camera = world.hass.states[CAMERA];
+        const withoutRooms = { ...camera.attributes };
+        delete withoutRooms.rooms;
+        const initial = withState(world.hass, CAMERA, { attributes: withoutRooms }).hass;
+        const card = await mountCard(world.config, initial);
+        const firstMode = card.element.modes[0];
+        const { ManualRectangle } = await import("../../src/model/map_objects/manual-rectangle");
+        const { createContext } = await import("../../src/card/selection");
+        const marker = new ManualRectangle(10, 10, 50, 50, "1", createContext(card.element));
+        card.element.selectedManualRectangles = [marker];
+        await card.updateHass(withState(initial, CAMERA, { attributes: camera.attributes }).hass);
+        expect(card.element.modes.map(m => m.selectionType)).toContain(SelectionType.ROOM);
+        expect(card.element.modes[0]).toBe(firstMode);
+        expect(card.element.selectedManualRectangles).toEqual([marker]);
         await card.cleanup();
     });
 });
