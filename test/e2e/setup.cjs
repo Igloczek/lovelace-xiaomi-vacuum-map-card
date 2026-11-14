@@ -297,9 +297,12 @@ async function main() {
                                     {
                                         // Room 1 follows an input_boolean, so a change made outside
                                         // the card rebuilds the rooms while the user holds a selection.
+                                        // The spec asserts the order numbers, which a custom service
+                                        // call shows only with `cleaning_order: true`.
                                         name: "Rooms",
                                         icon: "mdi:floor-plan",
                                         selection_type: "ROOM",
+                                        cleaning_order: true,
                                         service_call_schema: {
                                             service: "vacuum.send_command",
                                             service_data: { command: "app_segment_clean", params: "[[selection]]" },
