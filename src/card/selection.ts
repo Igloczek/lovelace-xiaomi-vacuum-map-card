@@ -24,6 +24,7 @@ import { getRoomsConfig } from "./rooms";
 import { getStaleRoomIds } from "./rooms";
 import { captureSelection, restoreSelection, SelectionSnapshot } from "../model/selection-rebuild";
 import { getWatchedEntitiesForMapMode } from "../utils";
+import { isCameraRoomsKnown, isEntitySourceKnown } from "../model/source-availability";
 import { runSelection } from "./run";
 
 export function createContext(card: XiaomiVacuumMapCard): Context {
@@ -206,33 +207,20 @@ export function rebuildSelection(card: XiaomiVacuumMapCard): void {
 }
 
 /**
- * The camera's room metadata is unknown rather than empty: it is missing now, but the camera has
- * reported rooms before or is itself unavailable (an HA restart, an integration reload). Selected
- * rooms are then held until the metadata returns (FORK.md, stale room selections: missing metadata
- * means "unknown").
+ * The camera's room metadata is unknown (see `isCameraRoomsKnown`): selected rooms are then held
+ * until the metadata returns (FORK.md, stale room selections: missing metadata means "unknown").
  */
 function isRoomMetadataUnknown(card: XiaomiVacuumMapCard): boolean {
-    if (getLiveRoomIds(card) !== undefined) return false;
     const camera = card.hass?.states[card.currentPreset?.map_source?.camera ?? ""];
-    return card.roomMetadataSeen || !camera || UNKNOWN_STATES.includes(camera.state);
+    return !isCameraRoomsKnown(camera, card.roomMetadataSeen);
 }
 
-const UNKNOWN_STATES = ["unavailable", "unknown"];
-
-/**
- * An entity that lists this mode's zones or points (`sensor.x.attributes.zones`) is missing,
- * unavailable, or lacks the attribute, so its zones or points are unknown rather than gone.
- */
+/** An entity that lists this mode's zones or points is unknown (see `isEntitySourceKnown`). */
 function isEntitySourceUnknown(card: XiaomiVacuumMapCard, mode: MapMode, field: "zones" | "position"): boolean {
     return mode.predefinedSelections
         .map(selection => (selection as unknown as Record<string, unknown>)[field])
         .filter((source): source is string => typeof source === "string")
-        .some(source => {
-            const [entityId, attribute] = source.split(".attributes.");
-            const entity = card.hass?.states[entityId];
-            if (!entity || entity.state === "unavailable") return true;
-            return attribute ? entity.attributes[attribute] === undefined : entity.state === "unknown";
-        });
+        .some(source => !isEntitySourceKnown(card.hass?.states, source));
 }
 
 /** The live camera room ids as one comparable value; undefined without metadata. */
