@@ -8,11 +8,13 @@ import { Rect, Rgb, SyntheticMap, roomBounds, syntheticMapCalibration } from "./
 /**
  * A budget for tracing a large map, so a slow change to the detector fails here rather than as a
  * frozen wall tablet. The map is 1024 x 1024 with 20 walled rooms covered in cleaning lanes and a
- * six-colour palette that repeats. On a developer machine this takes a few hundred milliseconds;
- * the budget is several times that so a loaded CI runner does not flake, and the card reuses a
- * complete detection for newer snapshots of the same rooms (see room-detection-reuse.test.ts).
+ * six-colour palette that repeats. On a developer machine one run takes about 220 ms; the budget is
+ * about three and a half times that, and the best of three runs is measured so one slow run on a
+ * loaded CI runner does not fail it. The card also reuses a detection for newer snapshots of the
+ * same rooms (see room-detection-reuse.test.ts).
  */
-const BUDGET_MS = 2500;
+const BUDGET_MS = 800;
+const RUNS = 3;
 
 function largeMap(): { map: SyntheticMap; rooms: Record<string, MapExtractorRoom> } {
     const size = 1024;
@@ -42,13 +44,16 @@ function largeMap(): { map: SyntheticMap; rooms: Record<string, MapExtractorRoom
 }
 
 describe("room detection performance", () => {
-    it(`traces 20 rooms on a 1024 x 1024 map within ${BUDGET_MS} ms`, () => {
+    it(`traces 20 rooms on a 1024 x 1024 map within ${BUDGET_MS} ms (best of ${RUNS})`, () => {
         const { map, rooms } = largeMap();
         const converter = new CoordinatesConverter(syntheticMapCalibration(map.width, map.height));
-        RoomColorDetector.detectFromImageData(map, rooms, converter);
-        const start = performance.now();
-        const detection = RoomColorDetector.detectFromImageData(map, rooms, converter);
-        const elapsed = performance.now() - start;
+        let detection = RoomColorDetector.detectFromImageData(map, rooms, converter);
+        let elapsed = Number.POSITIVE_INFINITY;
+        for (let run = 0; run < RUNS; run++) {
+            const start = performance.now();
+            detection = RoomColorDetector.detectFromImageData(map, rooms, converter);
+            elapsed = Math.min(elapsed, performance.now() - start);
+        }
         expect(detection?.regions).toHaveLength(20);
         expect(detection?.complete).toBe(true);
         expect(elapsed).toBeLessThan(BUDGET_MS);

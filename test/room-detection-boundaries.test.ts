@@ -163,3 +163,53 @@ describe("rooms metadata with an unusable outline", () => {
         expect(detectedIds(detection)).toEqual(["1"]);
     });
 });
+
+describe("interlocking L-shaped rooms of different colours", () => {
+    // Room A: a top bar and a left column. Room B: a right block and an arm reaching under A's bar,
+    // so B's arm lies inside A's (smaller) bounding box. Their colours differ; hallways often look
+    // like this. B's arm is B's, whatever the bounding boxes say.
+    const A_COLOR: Rgb = [240, 178, 122];
+    const B_COLOR: Rgb = BLUE;
+
+    function interlocking(walled: boolean): RoomColorDetection | undefined {
+        const map = new SyntheticMap(200, 120, OUTSIDE);
+        if (walled) map.rect([8, 8, 191, 111], WALL);
+        map.polygon([[10, 10], [110, 10], [110, 40], [40, 40], [40, 110], [10, 110]], A_COLOR);
+        map.polygon([[112, 10], [190, 10], [190, 110], [42, 110], [42, 42], [112, 42]], B_COLOR);
+        return detect(map, { A: [10, 10, 109, 109], B: [42, 10, 189, 109] });
+    }
+
+    it.each([false, true])("keeps B's arm in B (grey wall around: %s)", walled => {
+        const detection = interlocking(walled);
+        expect(detectedIds(detection)).toEqual(["A", "B"]);
+        const outline = detection!.regions.find(region => region.id === "B")!.outline;
+        expect(Math.min(...outline.map(point => point[0]))).toBeLessThanOrEqual(43);
+        for (const y of [43, 45, 48, 51, 55, 70, 100]) expect(tap(detection, 80, y), `80,${y}`).toBe("B");
+        expect(tap(detection, 45, 80)).toBe("B");
+        expect(tap(detection, 80, 20)).toBe("A");
+        expect(tap(detection, 20, 80)).toBe("A");
+    });
+});
+
+describe("a neighbour's bounds that overlap the room", () => {
+    it.each([3, 6, 10])("does not trim the room when a differently coloured neighbour's bounds reach %i px into it", overlap => {
+        const map = new SyntheticMap(200, 80, OUTSIDE);
+        map.rect([10, 10, 119, 69], ORANGE).rect([120, 10, 121, 69], WALL).rect([122, 10, 179, 69], BLUE);
+        const detection = detect(map, { A: [10, 10, 119, 69], B: [122 - overlap, 10, 179, 69] });
+        const outline = detection!.regions.find(region => region.id === "A")!.outline;
+        expect(Math.max(...outline.map(point => point[0]))).toBeGreaterThanOrEqual(119);
+        expect(tap(detection, 118, 40)).toBe("A");
+    });
+});
+
+describe("growing a room over what is drawn on it", () => {
+    it("never gives a room pixels of another detected room's colour", () => {
+        // A fragment of B's colour enclosed by A: it may be part of B cut off by a re-map, or an
+        // icon; either way it is not A, and a tap there must not select A.
+        const map = new SyntheticMap(200, 80, OUTSIDE);
+        map.rect([10, 10, 109, 69], ORANGE).rect([112, 10, 189, 69], BLUE).rect([60, 30, 69, 39], BLUE);
+        const detection = detect(map, { A: [10, 10, 109, 69], B: [112, 10, 189, 69] });
+        expect(tap(detection, 64, 34)).not.toBe("A");
+        expect(tap(detection, 30, 30)).toBe("A");
+    });
+});

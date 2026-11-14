@@ -17,6 +17,8 @@ interface RoomEntry {
     readonly polygon: PointType[];
     /** Only rooms described by bounds are traced from the colours; an own outline is kept as is. */
     readonly detectable: boolean;
+    /** Colours that cover enough of the room's bounds to be its fill, most frequent first. */
+    readonly colorKeys: number[];
 }
 
 interface RoomCandidate {
@@ -24,8 +26,8 @@ interface RoomCandidate {
     readonly bounds: PixelBounds;
     /** Colours that cover enough of the room's bounds to be its fill, most frequent first. */
     readonly colorKeys: number[];
-    /** Every other room's bounds: a room's closing never reaches into them. */
-    readonly otherBounds: PixelBounds[];
+    /** Every other metadata room. */
+    readonly others: RoomEntry[];
 }
 
 export interface DetectedRoomColor {
@@ -151,6 +153,8 @@ interface RoomOption {
     readonly components: ColorComponent[];
     readonly component: ColorComponent;
     readonly score: number;
+    /** The rooms whose bounds were barriers for this patch's closing, as a sorted id list. */
+    readonly barrierIds: string;
 }
 
 /** What enclosed-area filling and tap reach may grow into. */
@@ -159,6 +163,11 @@ interface GrowLimits {
     readonly labelBounds: PixelBounds[];
     /** 1 inside an undetected room's metadata shape. */
     readonly reserved: Uint8Array;
+    /** Each label's fill colour key. */
+    readonly labelColors: number[];
+    /** Every detected room's fill colour: a room never grows over another room's colour. */
+    readonly usedKeys: Set<number>;
+    readonly imageData: ImageDataLike;
 }
 
 interface BoundaryEdge {
@@ -262,10 +271,14 @@ export class RoomColorDetector {
         const entries = Object.keys(rooms)
             .map(id => this._getEntry(id, rooms[id], imageData, converter))
             .filter((entry): entry is RoomEntry => entry !== undefined);
-        const candidates = entries
-            .filter(entry => entry.detectable)
-            .map(entry => this._getCandidate(entry, entries, imageData))
-            .filter((candidate): candidate is RoomCandidate => candidate !== undefined);
+        const candidates: RoomCandidate[] = entries
+            .filter(entry => entry.detectable && entry.colorKeys.length > 0)
+            .map(entry => ({
+                id: entry.id,
+                bounds: entry.bounds,
+                colorKeys: entry.colorKeys,
+                others: entries.filter(other => other !== entry),
+            }));
         const allKeys = new Set(candidates.flatMap(candidate => candidate.colorKeys));
 
         const imageWidth = imageData.width;
@@ -291,10 +304,22 @@ export class RoomColorDetector {
         const optionsFor = (candidate: RoomCandidate, colorKey: number): RoomOption[] => {
             const foreign = new Set(allKeys);
             foreign.delete(colorKey);
-            const area = this._closeRoomArea(colorKey, foreign, candidate, imageData);
+            // While scoring, any room that could have this colour is a barrier: a same-coloured
+            // neighbour behind a thin wall must not merge into the patch.
+            const barriers = candidate.others.filter(other => other.colorKeys.includes(colorKey));
+            const area = this._closeRoomArea(colorKey, foreign, candidate.bounds, barriers.map(other => other.bounds), imageData);
             const components = this._components(area, candidate.bounds);
+            const barrierIds = barriers.map(other => other.id).sort().join("\n");
             return components
-                .map(component => ({ candidate, colorKey, area, components, component, score: this._score(component, candidate.bounds) }))
+                .map(component => ({
+                    candidate,
+                    colorKey,
+                    area,
+                    components,
+                    component,
+                    score: this._score(component, candidate.bounds),
+                    barrierIds,
+                }))
                 .filter(option => option.score > 0);
         };
 
@@ -329,14 +354,26 @@ export class RoomColorDetector {
         const labelBounds: PixelBounds[] = [];
         const finalAreas: RoomArea[] = [];
         const finalComponents: ColorComponent[][] = [];
-        // When every candidate colour is some room's fill (the usual case) the barriers are the same
-        // as in the first pass, so its areas are reused.
-        const sameBarriers = [...allKeys].every(key => usedKeys.has(key));
+        // The final area of each room is closed against the colours rooms actually use, and only the
+        // rooms that really share its colour are barriers: those assigned the same colour, and rooms
+        // left undetected that contain it. A differently coloured neighbour whose bounding box
+        // overlaps this room (interlocking L-shaped rooms) is no barrier; its colour already is.
+        // When nothing differs from scoring (the usual case) the scored area is reused.
+        const chosenColor = new Map(chosen.map(option => [option.candidate.id, option.colorKey]));
+        const sameColors = [...allKeys].every(key => usedKeys.has(key));
         chosen.forEach(option => {
             const foreign = new Set(usedKeys);
             foreign.delete(option.colorKey);
-            const area = sameBarriers ? option.area : this._closeRoomArea(option.colorKey, foreign, option.candidate, imageData);
-            const components = sameBarriers ? option.components : this._components(area, option.candidate.bounds);
+            const barriers = option.candidate.others.filter(other =>
+                chosenColor.has(other.id)
+                    ? chosenColor.get(other.id) === option.colorKey
+                    : other.colorKeys.includes(option.colorKey),
+            );
+            const reuse = sameColors && barriers.map(other => other.id).sort().join("\n") === option.barrierIds;
+            const area = reuse
+                ? option.area
+                : this._closeRoomArea(option.colorKey, foreign, option.candidate.bounds, barriers.map(other => other.bounds), imageData);
+            const components = reuse ? option.components : this._components(area, option.candidate.bounds);
             const label = labelRoomIds.push(option.candidate.id) - 1;
             labelBounds.push(option.candidate.bounds);
             finalAreas.push(area);
@@ -356,7 +393,13 @@ export class RoomColorDetector {
             this._labelSecondary(finalAreas[label], finalComponents[label], option, label, labels, reserved, imageWidth),
         );
 
-        const grow = { labelBounds, reserved };
+        const grow: GrowLimits = {
+            labelBounds,
+            reserved,
+            labelColors: chosen.map(option => option.colorKey),
+            usedKeys,
+            imageData,
+        };
         this._fillEnclosedAreas(labels, imageData.width, imageData.height, grow);
         const outlineLabels = labels.slice();
         this._extendTapReach(labels, imageData, grow);
@@ -402,11 +445,11 @@ export class RoomColorDetector {
         if (polygon.some(point => !Number.isFinite(point[0]) || !Number.isFinite(point[1]))) return undefined;
         const bounds = this._getBounds(polygon, imageData.width, imageData.height);
         if (!bounds) return undefined;
-        return { id, bounds, polygon, detectable: geometry.fromBounds };
+        return { id, bounds, polygon, detectable: geometry.fromBounds, colorKeys: this._colorKeysIn(bounds, imageData) };
     }
 
-    private static _getCandidate(entry: RoomEntry, entries: RoomEntry[], imageData: ImageDataLike): RoomCandidate | undefined {
-        const { bounds } = entry;
+    /** The colours that cover at least 8% of a room's bounds, most frequent first. */
+    private static _colorKeysIn(bounds: PixelBounds, imageData: ImageDataLike): number[] {
         const counts = new Uint32Array(32768);
         const seen: number[] = [];
         let coloredPixels = 0;
@@ -419,13 +462,10 @@ export class RoomColorDetector {
             }
         }
 
-        if (coloredPixels < 8) return undefined;
-        const colorKeys = seen
+        if (coloredPixels < 8) return [];
+        return seen
             .filter(key => counts[key] >= 8 && counts[key] >= coloredPixels * 0.08)
             .sort((left, right) => counts[right] - counts[left]);
-        if (colorKeys.length === 0) return undefined;
-        const otherBounds = entries.filter(other => other !== entry).map(other => other.bounds);
-        return { id: entry.id, bounds, colorKeys, otherBounds };
     }
 
     /** The colour key of a pixel that can be a room fill: opaque, saturated and not too dark. */
@@ -475,10 +515,10 @@ export class RoomColorDetector {
     private static _closeRoomArea(
         colorKey: number,
         foreignColors: Set<number>,
-        candidate: RoomCandidate,
+        roomBounds: PixelBounds,
+        barriers: PixelBounds[],
         imageData: ImageDataLike,
     ): RoomArea {
-        const roomBounds = candidate.bounds;
         const radius = GAP_CLOSING_RADIUS;
         const bounds: PixelBounds = {
             left: Math.max(0, roomBounds.left - BOUNDS_MARGIN),
@@ -488,12 +528,13 @@ export class RoomColorDetector {
         };
         const width = bounds.right - bounds.left + 1;
         const height = bounds.bottom - bounds.top + 1;
-        // Another room's bounds, outside this room's own (or inside it, for a smaller room): map
-        // sources reuse a colour for rooms that do not touch, often only a thin wall apart. The closing would bridge that wall and run
-        // into the same-coloured neighbour, so the neighbour's area is a barrier, never own colour.
+        // The bounds of a room that may share this colour, outside this room's own (or inside it, for
+        // a smaller room): map sources reuse a colour for rooms that do not touch, often only a thin
+        // wall apart. The closing would bridge that wall and run into the same-coloured neighbour,
+        // so the neighbour's area is a barrier, never own colour.
         const otherOwned = new Uint8Array(width * height);
         const area = (box: PixelBounds): number => (box.right - box.left + 1) * (box.bottom - box.top + 1);
-        candidate.otherBounds.forEach(other => {
+        barriers.forEach(other => {
             // Where the bounds overlap, the smaller room owns the overlap: a closet inside a room's
             // bounding box is the closet's, even when it has the room's colour.
             const ownsOverlap = area(other) < area(roomBounds);
@@ -834,7 +875,8 @@ export class RoomColorDetector {
     /**
      * Multi-source breadth-first growth of room labels into `targets` (unlabelled pixels), up to
      * `reach` steps (8-connected). Each target takes the label of the nearest room whose bounds
-     * contain it; reserved pixels (an undetected room's shape) are never taken.
+     * contain it and whose colour does not clash: pixels of another detected room's fill colour
+     * and reserved pixels (an undetected room's shape) are never taken.
      */
     private static _growLabels(
         labels: Int16Array,
@@ -849,11 +891,18 @@ export class RoomColorDetector {
         targets.forEach(index => {
             if (!grow.reserved[index]) isTarget[index] = 1;
         });
+        const data = grow.imageData.data;
         const canTake = (label: number, index: number): boolean => {
             const bounds = grow.labelBounds[label];
             const x = index % width;
             const y = (index - x) / width;
-            return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
+            if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return false;
+            // Pixels of another detected room's fill colour are that room's (or an icon in it), never
+            // this room's.
+            const offset = index * 4;
+            if (data[offset + 3] < 128) return true;
+            const key = this.getColorKey(data[offset], data[offset + 1], data[offset + 2]);
+            return key === grow.labelColors[label] || !grow.usedKeys.has(key);
         };
         let frontier: number[] = [];
         const seen = new Uint8Array(labels.length);

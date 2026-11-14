@@ -99,6 +99,13 @@ export function adjustRoomId(roomId: string | number, config: MapMode): string |
 /** How long a complete room detection is reused for newer snapshots of the same room geometry. */
 const ROOM_DETECTION_REUSE_MS = 10 * 60 * 1000;
 
+/**
+ * How long a detection that missed a room is reused. A room drawn without colour is never found, so
+ * without reuse such a map is traced on every snapshot; a short limit still picks up a room that
+ * only appears once the map finishes drawing.
+ */
+const INCOMPLETE_ROOM_DETECTION_REUSE_MS = 60 * 1000;
+
 export function detectRoomColors(card: XiaomiVacuumMapCard): void {
     const preset = card._getCurrentPreset();
     const camera = preset?.map_source?.camera;
@@ -133,12 +140,14 @@ export function detectRoomColors(card: XiaomiVacuumMapCard): void {
     // on a large map, so a complete detection of the same room geometry is kept; its label map
     // still covers the old robot spot as floor, and tap reach covers the new one. The rooms are
     // rebuilt below either way, so a renamed room shows its new name. A changed shape, size or
-    // calibration, an incomplete detection, or ten minutes passing traces the rooms again.
+    // calibration traces the rooms again, and so does age: ten minutes for a complete detection,
+    // one for a detection that missed a room.
+    const reuseLimit = previousDetection?.complete ? ROOM_DETECTION_REUSE_MS : INCOMPLETE_ROOM_DETECTION_REUSE_MS;
     const reusable =
-        previousDetection?.complete === true &&
+        previousDetection?.geometryKey !== undefined &&
         converter !== undefined &&
         card.roomColorDetectionAt !== undefined &&
-        Date.now() - card.roomColorDetectionAt < ROOM_DETECTION_REUSE_MS &&
+        Date.now() - card.roomColorDetectionAt < reuseLimit &&
         previousDetection.geometryKey === RoomColorDetector.geometryKey(image.width, image.height, rooms, converter);
     if (!reusable) {
         card.roomColorDetection = converter ? RoomColorDetector.detect(image, rooms, converter) : undefined;

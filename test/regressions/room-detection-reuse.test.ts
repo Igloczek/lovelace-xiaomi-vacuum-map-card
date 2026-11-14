@@ -9,8 +9,10 @@ import { fixtureConfig, fixtureHass, loadSyntheticFixture, mountCard, useHarness
  * While the vacuum cleans, the camera publishes a new snapshot every few seconds: the robot moved
  * and the path grew, the rooms did not. Tracing every room again each time froze the main thread
  * (hundreds of milliseconds on a large map), so a snapshot with the same room geometry, calibration
- * and size keeps the previous detection when that one found every room. The room list is still
- * rebuilt, so a renamed room shows its new name; changed geometry is detected again.
+ * and size keeps the previous detection: for ten minutes when that one found every room, for one
+ * minute when a room could not be found (a map with one room drawn without colour would otherwise
+ * be traced on every snapshot). The room list is still rebuilt, so a renamed room shows its new
+ * name; changed geometry is detected again.
  */
 
 const FIXTURE = loadSyntheticFixture();
@@ -25,8 +27,8 @@ function roomsConfig(): XiaomiVacuumMapCardConfig {
     };
 }
 
-/** A complete detection of the camera's rooms, keyed on the geometry the card passes in. */
-function stubDetect() {
+/** A detection of the camera's rooms, keyed on the geometry the card passes in. */
+function stubDetect(complete = true) {
     return vi
         .spyOn(RoomColorDetector, "detect")
         .mockImplementation((image, rooms, converter): RoomColorDetection => {
@@ -40,7 +42,7 @@ function stubDetect() {
                 labels: new Int16Array(width * height).fill(-1),
                 labelRoomIds: ids,
                 geometryKey: RoomColorDetector.geometryKey(width, height, rooms, converter),
-                complete: true,
+                complete,
             };
         });
 }
@@ -76,6 +78,38 @@ describe("room detection across camera refreshes", () => {
 
         expect(detect).toHaveBeenCalledTimes(1);
         expect(roomLabel(card, "0")).toBe("Pantry");
+    });
+
+    it("keeps an incomplete detection for a minute, then traces the rooms again", async () => {
+        useHarnessClock("2026-11-01T10:00:00.000Z");
+        const detect = stubDetect(false);
+        const card = await mountCard(roomsConfig(), fixtureHass(FIXTURE));
+        await card.fireMapLoad();
+        const rooms = FIXTURE.camera.attributes.rooms as Record<string, MapExtractorRoom>;
+
+        vi.setSystemTime(new Date("2026-11-01T10:00:30.000Z"));
+        await newSnapshot(card, rooms, "2026-11-01T10:00:30.000Z");
+        expect(detect).toHaveBeenCalledTimes(1);
+
+        vi.setSystemTime(new Date("2026-11-01T10:01:05.000Z"));
+        await newSnapshot(card, rooms, "2026-11-01T10:01:05.000Z");
+        expect(detect).toHaveBeenCalledTimes(2);
+    });
+
+    it("traces a complete detection again after ten minutes", async () => {
+        useHarnessClock("2026-11-01T10:00:00.000Z");
+        const detect = stubDetect();
+        const card = await mountCard(roomsConfig(), fixtureHass(FIXTURE));
+        await card.fireMapLoad();
+        const rooms = FIXTURE.camera.attributes.rooms as Record<string, MapExtractorRoom>;
+
+        vi.setSystemTime(new Date("2026-11-01T10:09:00.000Z"));
+        await newSnapshot(card, rooms, "2026-11-01T10:09:00.000Z");
+        expect(detect).toHaveBeenCalledTimes(1);
+
+        vi.setSystemTime(new Date("2026-11-01T10:10:30.000Z"));
+        await newSnapshot(card, rooms, "2026-11-01T10:10:30.000Z");
+        expect(detect).toHaveBeenCalledTimes(2);
     });
 
     it("detects again when a room's geometry changes", async () => {
