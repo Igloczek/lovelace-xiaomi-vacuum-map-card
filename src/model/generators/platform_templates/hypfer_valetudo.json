@@ -77,7 +77,7 @@
                     "service": "mqtt.publish",
                     "service_data": {
                         "topic": "[[topic]]/GoToLocationCapability/go/set",
-                        "payload": "{ \"coordinates\": { \"x\": \"[[point_x]]\", \"y\": \"[[point_y]]\" } }"
+                        "payload": "{ \"coordinates\": { \"x\": [[point_x]], \"y\": [[point_y]] } }"
                     }
                 }
             }

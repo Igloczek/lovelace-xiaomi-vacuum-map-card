@@ -51,3 +51,6 @@ To get coordinates of zone, point or outline you have to:
 6. Copy selection coordinates using "Copy" button in editor
 
    ![image](media/copy_selection.png)
+
+   The map's run button also works with a setup platform: it creates a Home Assistant notification
+   with the selection's coordinates.

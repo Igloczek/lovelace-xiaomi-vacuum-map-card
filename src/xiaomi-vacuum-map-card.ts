@@ -51,7 +51,6 @@ import {
     areConditionsMet,
     checkIfEntitiesChanged,
     conditional,
-    createActionWithConfigHandler,
     getMousePosition,
     getWatchedEntities,
     hasConfigOrAnyEntityChanged,
@@ -70,6 +69,7 @@ import { GeneratorWrapper } from "./model/generators/generator-wrapper";
 import { PlatformGenerator } from "./model/generators/platform-generator";
 import { sortTiles, TilesGenerator } from "./model/generators/tiles-generator";
 import { IconListGenerator, sortIcons } from "./model/generators/icon-list-generator";
+import { createActionWithConfigHandler } from "./card/actions";
 import { ToastRenderer } from "./renderers/toast-renderer";
 import { CoordinatesConverter } from "./model/map_objects/coordinates-converter";
 import { MousePosition } from "./model/map_objects/mouse-position";
@@ -162,6 +162,8 @@ export class XiaomiVacuumMapCard extends LitElement {
     readonly mapTapGuard = createTapGuard();
     /** The room run started from this card, shown on the map until the vacuum finishes it. */
     activeRoomRun?: ActiveRoomRun;
+    /** True while the run button's service call waits for Home Assistant's answer. */
+    serviceCallInFlight = false;
     /** The vacuum whose stored run `activeRoomRun` was loaded for. */
     activeRoomRunEntity?: string;
     selectedPredefinedPoints: PredefinedPoint[] = [];

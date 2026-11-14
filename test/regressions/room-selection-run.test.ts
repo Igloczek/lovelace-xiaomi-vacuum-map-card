@@ -115,7 +115,7 @@ describe("room selections from camera metadata", () => {
 
         await runSelection(card);
 
-        expect(rendered).toContain("{{ ['2','0'] | length }}");
+        expect(rendered).toContain('{{ ["2","0"] | length }}');
         const calls = vi.mocked(hass.callService).mock.calls;
         expect(calls).toHaveLength(1);
         expect(calls[0].slice(0, 3)).toEqual([
@@ -141,13 +141,11 @@ describe("room selections from camera metadata", () => {
 });
 
 describe("normalizeJinjaQuotes", () => {
-    it("rewrites escaped double quotes only inside Jinja delimiters", () => {
+    it("unescapes JSON quotes only inside Jinja delimiters", () => {
         const template = JSON.stringify({ a: '{{ ["13","14"] | length }}', b: '"kept"', c: '{% if "x" %}y{% endif %}' });
-        expect(JSON.parse(normalizeJinjaQuotes(template))).toEqual({
-            a: "{{ ['13','14'] | length }}",
-            b: '"kept"',
-            c: "{% if 'x' %}y{% endif %}",
-        });
+        expect(normalizeJinjaQuotes(template)).toBe(
+            '{"a":"{{ ["13","14"] | length }}","b":"\\"kept\\"","c":"{% if "x" %}y{% endif %}"}',
+        );
     });
 });
 

@@ -12,6 +12,7 @@ import type { XiaomiVacuumMapCard } from "../xiaomi-vacuum-map-card";
 import { getConfiguredRotation } from "./map-view";
 import { selectionChanged } from "./selection";
 import { captureCurrentSelection, setCurrentMode } from "./selection";
+import { callServiceReported } from "./run";
 
 export function getCalibration(card: XiaomiVacuumMapCard, config: CardPresetConfig): CalibrationPoint[] | undefined {
     if (config.calibration_source?.identity) {
@@ -207,9 +208,13 @@ export function executePresetsActivation(card: XiaomiVacuumMapCard) {
     if (card.currentPreset.activate) {
         const schema = new ServiceCallSchema(card.currentPreset.activate);
         const serviceCall = schema.apply(card.currentPreset.entity, [], 0, {});
-        card.hass
-            .callService(serviceCall.domain, serviceCall.service, serviceCall.serviceData, serviceCall.target)
-            .then(() => forwardHaptic("success"));
+        void callServiceReported(
+            card,
+            serviceCall.domain,
+            serviceCall.service,
+            serviceCall.serviceData,
+            serviceCall.target,
+        ).then(accepted => accepted && forwardHaptic("success"));
     }
 }
 

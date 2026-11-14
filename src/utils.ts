@@ -1,9 +1,6 @@
-import { ActionHandlerEvent, handleAction, HomeAssistant } from "custom-card-helpers";
 import { PropertyValues } from "lit";
 
 import {
-    ActionableObjectConfig,
-    ActionHandlerFunction,
     CardPresetConfig,
     ConditionalObjectConfig,
     ConditionConfig,
@@ -18,11 +15,8 @@ import {
 import { MapMode } from "./model/map_mode/map-mode";
 import { SelectionType } from "./model/map_mode/selection-type";
 import { MousePosition } from "./model/map_objects/mouse-position";
-import { XiaomiVacuumMapCard } from "./xiaomi-vacuum-map-card";
 import { Modifier } from "./model/map_mode/modifier";
 import { HomeAssistantFixed } from "./types/fixes";
-import { ServiceCallSchema } from "./model/map_mode/service-call-schema";
-import { TemplatableItemValue } from "./model/map_mode/templatable-value";
 import { PlatformGenerator } from "./model/generators/platform-generator";
 
 export function stopEvent(event: MouseEvent | TouchEvent): void {
@@ -177,40 +171,13 @@ export function conditional<T>(condition: boolean, content: () => T): T | null {
     return condition ? content() : null;
 }
 
-export function createActionWithConfigHandler(
-    node: XiaomiVacuumMapCard,
-    config: ActionableObjectConfig | undefined,
-    action?: string,
-): ActionHandlerFunction {
-    if (action) {
-        return (): void => handleActionWithConfig(node, config, action);
+/** The message of an `Error` or of the `{ code, message }` object Home Assistant rejects with. */
+export function errorMessage(e: unknown): string {
+    if (e instanceof Error) return e.message;
+    if (e && typeof e === "object" && typeof (e as { message?: unknown }).message === "string") {
+        return (e as { message: string }).message;
     }
-    return (ev?: ActionHandlerEvent): void => handleActionWithConfig(node, config, ev?.detail?.action ?? "tap");
-}
-
-export function handleActionWithConfig(
-    node: XiaomiVacuumMapCard,
-    config: ActionableObjectConfig | undefined,
-    action: string,
-): void {
-    if (node.hass && config && action) {
-        const currentPreset = node._getCurrentPreset();
-        const currentMode = node._getCurrentMode();
-        let itemVariables = {};
-        itemVariables[TemplatableItemValue.VACUUM_ENTITY_ID] = currentPreset.entity;
-        if (config.hasOwnProperty("attribute")) {
-            itemVariables[TemplatableItemValue.ATTRIBUTE] = config["attribute"];
-        }
-        if (config.hasOwnProperty("variables")) {
-            itemVariables = { ...itemVariables, ...config["variables"] };
-        }
-        const entity_id = config.hasOwnProperty("entity") ? config["entity"] : currentPreset.entity;
-        const { selection, variables } = node._getSelection(currentMode);
-        const defaultVariables = ServiceCallSchema.getDefaultVariables(entity_id, selection, node.repeats);
-        const filled = getFilledTemplate(config as Record<string, unknown>, defaultVariables, itemVariables,
-            node.internalVariables, currentMode?.variables ?? {}, variables);
-        handleAction(node, node.hass as unknown as HomeAssistant, filled as ActionableObjectConfig, action);
-    }
+    return String(e);
 }
 
 export function getMousePosition(
@@ -331,13 +298,21 @@ export async function evaluateJinjaTemplate(
 }
 
 /**
- * The service data is evaluated as one JSON document, so a string inside it (a room id from
- * `[[selection]]`, for example) reaches Jinja as `\"13\"`, which is a syntax error inside `{{ }}`
- * or `{% %}`. An escaped double quote is never valid Jinja there, so it is rewritten to a single
- * quote, which Jinja reads as the same string delimiter. Text outside the delimiters is untouched.
+ * The service data is evaluated as one JSON document, so the Jinja code inside `{{ }}` and `{% %}`
+ * arrives JSON-escaped: a room id from `[[selection]]` becomes `[\"13\"]`, a syntax error in Jinja.
+ * The code inside the delimiters never reaches the JSON output (only what it renders does), so it is
+ * JSON-unescaped back to the code the user wrote. This also keeps `'[\"13\"]'|from_json` valid: the
+ * double quotes inside a single-quoted Jinja string stay plain double quotes. Text outside the
+ * delimiters is untouched.
  */
 export function normalizeJinjaQuotes(template: string): string {
-    return template.replace(/\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g, block => block.replaceAll('\\"', "'"));
+    return template.replace(/\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g, block => {
+        try {
+            return JSON.parse(`"${block}"`) as string;
+        } catch {
+            return block;
+        }
+    });
 }
 
 export function replaceInTarget(target: Record<string, unknown>, keyReplacer: KeyReplacer): void {

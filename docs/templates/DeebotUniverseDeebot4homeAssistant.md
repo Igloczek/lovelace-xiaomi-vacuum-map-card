@@ -4,6 +4,11 @@
 
 This platform can be used to control vacuums connected to Home Assistant using Deebot 4 Home Assistant integration created by [@DeebotUniverse](https://github.com/DeebotUniverse).
 
+The integration is now Home Assistant's built-in [Ecovacs](https://www.home-assistant.io/integrations/ecovacs/)
+integration. Since Home Assistant 2026.3 it expects room ids and zone coordinates as lists
+(`rooms: [14, 19]`, `coordinates: [x1, y1, x2, y2]`); before, it expected comma-separated strings
+(`rooms: "14,19"`). The card reads the Home Assistant version and sends the matching format.
+
 ## Available templates
 
 * ### Room cleaning (`vacuum_clean_segment`)
@@ -14,7 +19,7 @@ This platform can be used to control vacuums connected to Home Assistant using D
 
   [Getting coordinates](/docs/templates/setup.md#getting-coordinates)
 
-  Used service: `xiaomi_miio.vacuum_clean_segment`
+  Used service: `vacuum.send_command` (`spot_area`)
 
   [Documentation](https://deebot.readthedocs.io/integrations/home-assistant/examples/commands/#clean-only-certain-rooms)
 

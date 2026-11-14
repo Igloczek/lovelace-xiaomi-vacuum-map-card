@@ -93,11 +93,7 @@ export function getRoomsConfig(card: XiaomiVacuumMapCard, requestId?: string): R
 }
 
 export function adjustRoomId(roomId: string | number, config: MapMode): string | number {
-    if (config.idType === "number") {
-        const roomIdAsNumber = +roomId;
-        return isNaN(roomIdAsNumber) ? roomId : roomIdAsNumber;
-    }
-    return roomId;
+    return config.toServiceRoomId(roomId);
 }
 
 export function detectRoomColors(card: XiaomiVacuumMapCard): void {
