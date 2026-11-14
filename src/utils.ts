@@ -123,9 +123,12 @@ export function isConditionMet(
     if (condition.internal_variable && condition.internal_variable in internalVariables) {
         currentValue = internalVariables[condition.internal_variable];
     } else if (condition.entity) {
+        // A removed or not-yet-loaded entity has no state: its value is unknown, so a `value`
+        // condition is not met and a `value_not` condition is.
+        const entity = hass.states[condition.entity];
         currentValue = condition.attribute
-            ? hass.states[condition.entity].attributes[condition.attribute]
-            : hass.states[condition.entity].state;
+            ? entity?.attributes?.[condition.attribute]
+            : entity?.state;
     }
     if (condition.value) {
         return currentValue == condition.value;

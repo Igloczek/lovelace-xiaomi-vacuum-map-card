@@ -1,3 +1,4 @@
+import { cameraRoomsById, readCameraRooms } from "../model/camera-rooms";
 import type { RoomConfig, RoomConfigEventData } from "../types/types";
 import { MapExtractorRoom } from "../types/types";
 import { cameraRefreshKey } from "../model/map-refresh-policy";
@@ -13,7 +14,7 @@ import { rebuildSelection } from "./selection";
 export function getLiveRooms(card: XiaomiVacuumMapCard): Record<string, MapExtractorRoom> | undefined {
     const camera = card._getCurrentPreset()?.map_source?.camera;
     return camera
-        ? (card.hass?.states[camera]?.attributes["rooms"] as Record<string, MapExtractorRoom> | undefined)
+        ? (cameraRoomsById(card.hass?.states[camera]?.attributes["rooms"]) as Record<string, MapExtractorRoom> | undefined)
         : undefined;
 }
 
@@ -45,51 +46,40 @@ export function getStaleRoomIds(card: XiaomiVacuumMapCard, mode: MapMode | undef
 
 export function getRoomsConfig(card: XiaomiVacuumMapCard, requestId?: string): RoomConfigEventData | undefined {
     const config = card._getCurrentPreset();
-    const rooms = card.hass.states[config.map_source?.camera ?? ""]?.attributes["rooms"] as Record<
-        string,
-        MapExtractorRoom
-    >;
+    const rawRooms = card.hass.states[config.map_source?.camera ?? ""]?.attributes["rooms"];
     const roomsConfig = new Array<RoomConfig>();
-    if (rooms) {
+    if (rawRooms) {
         const mode = card.modes.filter(m => m.selectionType === SelectionType.ROOM).reverse()[0];
         const modeIndex = mode ? card.modes.indexOf(mode) : -1;
-        for (const room_id in rooms) {
-            if (!rooms.hasOwnProperty(room_id)) continue;
-            const room = rooms[room_id];
-            const hasBounds = [room.x0, room.y0, room.x1, room.y1].every(value => typeof value === "number");
-            if (!room.outline && !hasBounds) continue;
-            const outline = room.outline ?? [
-                [room.x0, room.y0],
-                [room.x1, room.y0],
-                [room.x1, room.y1],
-                [room.x0, room.y1],
-            ];
+        for (const room of readCameraRooms(rawRooms)) {
+            const outline = room.outline;
             const keepFloat = outline.toString().includes(".");
             const formatCoord = (v: number, divide = 1): number =>
                 keepFloat ? v / divide : Math.round(v / divide);
-            const x = outline.reduce((a, v) => a + (v[0] ?? 0), 0);
-            const y = outline.reduce((a, v) => a + (v[1] ?? 0), 0);
-            const region = card.roomColorDetection?.regions.find(candidate => candidate.id === room_id);
+            const x = outline.reduce((a, v) => a + v[0], 0);
+            const y = outline.reduce((a, v) => a + v[1], 0);
+            const region = card.roomColorDetection?.regions.find(candidate => candidate.id === room.id);
             const detectedCenter = region && card.coordinatesConverter
                 ? card.coordinatesConverter.mapToVacuum(region.center[0], region.center[1])
                 : undefined;
+            const centerX = room.x ?? detectedCenter?.[0] ?? formatCoord(x, outline.length);
+            const centerY = room.y ?? detectedCenter?.[1] ?? formatCoord(y, outline.length);
 
-            const roomConfig = {
-                id: room_id,
+            roomsConfig.push({
+                id: room.id,
                 icon: {
                     name: room.icon ?? "mdi:broom",
-                    x: room.x ?? detectedCenter?.[0] ?? formatCoord(x, outline.length),
-                    y: room.y ?? detectedCenter?.[1] ?? formatCoord(y, outline.length),
+                    x: centerX,
+                    y: centerY,
                 },
                 label: {
-                    text: room.name ?? `Room ${room_id}`,
-                    x: room.x ?? detectedCenter?.[0] ?? formatCoord(x, outline.length),
-                    y: room.y ?? detectedCenter?.[1] ?? formatCoord(y, outline.length),
+                    text: room.name ?? `Room ${room.id}`,
+                    x: centerX,
+                    y: centerY,
                     offset_y: 35,
                 },
                 outline: outline,
-            } as RoomConfig;
-            roomsConfig.push(roomConfig);
+            } as RoomConfig);
         }
         return {
             modeIndex: modeIndex,

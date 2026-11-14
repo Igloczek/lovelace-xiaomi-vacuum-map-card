@@ -117,6 +117,12 @@
                         }
                     }
                 },
+                "selection_type": {
+                    "invalid": "Invalid selection type: {0}"
+                },
+                "repeats_type": {
+                    "invalid": "Invalid repeats type: {0}"
+                },
                 "service_call_schema": {
                     "missing": "Missing service call schema",
                     "service": {
@@ -125,6 +131,10 @@
                     }
                 }
             }
+        },
+        "type": {
+            "mapping": "Invalid configuration: {0} must be a mapping (key: value)",
+            "list": "Invalid configuration: {0} must be a list"
         },
         "map_view": {
             "invalid": "Invalid map_view value: {0}"

@@ -18,6 +18,7 @@ import { HomeAssistantFixed } from "../types/fixes";
 import { localizeEntity } from "../localize/localize";
 import { computeAttributeNameDisplay } from "../localize/hass/compute_attribute_display";
 import { blankBeforePercent } from "../localize/hass/blank_before_percent";
+import { formatNumber } from "../localize/hass/format_number";
 import { RootlessLitElement } from "./rootless-lit-element";
 
 
@@ -95,13 +96,19 @@ export class Tile extends RootlessLitElement {
         stateObject?: HassEntity,
     ) {
         let value: ReplacedKey = "";
-        const unit = this.getUnit();
+        let unit = this.getUnit();
         const processNumber = this.config.multiplier !== undefined || this.config.precision !== undefined;
+        // A value that is not a number - `unavailable`, `unknown`, a missing or null attribute -
+        // cannot carry the tile's unit: "unavailable h" reads as a measurement. It is shown as
+        // Home Assistant shows the state, without the unit.
+        let numeric = false;
         if (this.config.entity && stateObject) {
             if (processNumber) {
-                value = this.config.attribute
+                const raw = this.config.attribute
                     ? stateObject.attributes[this.config.attribute]
                     : stateObject.state;
+                numeric = Tile.isNumeric(raw);
+                value = numeric ? (raw as ReplacedKey) : localizeEntity(this.hass, this.config as EntityConfig, stateObject);
             } else {
                 value = localizeEntity(this.hass, this.config as EntityConfig, stateObject);
                 const originalUnit = stateObject.attributes.unit_of_measurement;
@@ -111,12 +118,27 @@ export class Tile extends RootlessLitElement {
             }
         } else if (this.config.internal_variable && this.config.internal_variable in this.internalVariables) {
             value = this.internalVariables[this.config.internal_variable];
+            numeric = processNumber && Tile.isNumeric(value);
+        } else if (this.config.entity && processNumber) {
+            // The configured entity does not exist (removed, renamed or not loaded yet).
+            value = this.hass.localize?.("state.default.unavailable") || "unavailable";
         }
-        if (processNumber && value !== null && (typeof value === "number" || !isNaN(+value))) {
-            value = parseFloat(value.toString()) * (this.config.multiplier ?? 1);
-            if (this.config.precision !== undefined) {
-                value = value.toFixed(this.config.precision);
-            }
+        let formatted: string | undefined;
+        if (processNumber && numeric) {
+            const number = parseFloat(`${value}`) * (this.config.multiplier ?? 1);
+            const precision = this.config.precision;
+            value = precision !== undefined ? number.toFixed(precision) : number;
+            // The user's number format (decimal comma, grouping), as Home Assistant's own cards
+            // show numbers. The translation lookup below still uses the plain value.
+            formatted = formatNumber(
+                number,
+                this.hass.locale,
+                precision !== undefined
+                    ? { minimumFractionDigits: precision, maximumFractionDigits: precision }
+                    : { maximumFractionDigits: 10 },
+            );
+        } else if (processNumber) {
+            unit = "";
         }
         const translations = this.config.translations ?? {};
         // Master matched the lower-cased value as an exact key. Keep that first so a config with
@@ -131,15 +153,26 @@ export class Tile extends RootlessLitElement {
                 .find(key => key.toLowerCase() === valueKey);
             if (translationKey !== undefined) {
                 value = translations[translationKey];
+            } else if (formatted !== undefined) {
+                value = formatted;
             }
         }
         return `${value}${unit}`;
+    }
+
+    private static isNumeric(value: unknown): boolean {
+        if (typeof value === "number") return Number.isFinite(value);
+        return typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value));
     }
 
     private getIcon(stateObject?: HassEntity) {
         if (this.config.icon_source) {
             const split = this.config.icon_source.split(".attributes.");
             const entity = this.hass.states[split[0]];
+            if (!entity) {
+                // The icon's source entity is gone; fall back to the tile's own icon.
+                return this.config.icon ?? stateObject?.attributes.icon ?? "";
+            }
             let icon = entity.state;
             if (split.length === 2) {
                 icon = entity.attributes[split[1]];

@@ -25,23 +25,37 @@ const DURATION_UNITS_IN_SECONDS: Record<string, number> = {
     d: 86400,
 };
 
+function isDurationUnit(unit: string): boolean {
+    return Object.prototype.hasOwnProperty.call(DURATION_UNITS_IN_SECONDS, unit);
+}
+
 /**
  * Resolves the multiplier a tile template needs to show a duration in its `duration_unit`.
  * Platform templates used to hard-code a multiplier that assumed the sensor reported seconds;
  * Roborock core reports ms, s, min, h or d depending on the firmware, so the factor is derived
  * from the entity's `unit_of_measurement` instead.
  *
- * A value without a known time unit (an attribute-based tile, or an unusual sensor unit) is
- * assumed to be in seconds, which keeps templates without `duration_unit` unchanged.
+ * A value without a known time unit (an attribute-based tile, or an unusual sensor unit) keeps the
+ * template's own `multiplier` when it has one: that factor encodes the unit the integration used
+ * when the template was written, so a template can carry both and stay correct for unit-less
+ * sensors. Without a `multiplier` the value is assumed to be in seconds.
  */
 export function resolveTileMultiplier(
     tileTemplate: TileTemplate,
     sourceUnit: string | undefined,
 ): number | undefined {
     const target = tileTemplate.duration_unit;
-    if (target !== undefined && target in DURATION_UNITS_IN_SECONDS) {
-        const source = sourceUnit !== undefined ? DURATION_UNITS_IN_SECONDS[sourceUnit] ?? 1 : 1;
-        return source / DURATION_UNITS_IN_SECONDS[target];
+    if (target !== undefined && isDurationUnit(target)) {
+        const source = sourceUnit !== undefined && isDurationUnit(sourceUnit)
+            ? DURATION_UNITS_IN_SECONDS[sourceUnit]
+            : undefined;
+        if (source !== undefined) {
+            return source / DURATION_UNITS_IN_SECONDS[target];
+        }
+        if (tileTemplate.multiplier) {
+            return tileTemplate.multiplier;
+        }
+        return DURATION_UNITS_IN_SECONDS.s / DURATION_UNITS_IN_SECONDS[target];
     }
     return tileTemplate.multiplier ? tileTemplate.multiplier : undefined;
 }
@@ -201,7 +215,7 @@ export class TilesGenerator {
             return PlatformGenerator.getTilesFromSensorsTemplates(platform)
                 .map(t => ({
                     tile: t,
-                    entity: entityRegistryEntries.filter(e => e.unique_id.match(t.unique_id_regex)),
+                    entity: entityRegistryEntries.filter(e => String(e.unique_id ?? "").match(t.unique_id_regex)),
                 }))
                 .flatMap(v => v.entity.map(e => TilesGenerator.mapEntryToTile(hass, vacuumEntityId, e, v.tile, language, variables)))
         }

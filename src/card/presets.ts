@@ -7,6 +7,7 @@ import { MapMode } from "../model/map_mode/map-mode";
 import { PlatformGenerator } from "../model/generators/platform-generator";
 import { CoordinatesConverter } from "../model/map_objects/coordinates-converter";
 import { ServiceCallSchema } from "../model/map_mode/service-call-schema";
+import { isCameraRoomsKnown } from "../model/source-availability";
 import type { XiaomiVacuumMapCard } from "../xiaomi-vacuum-map-card";
 import { getConfiguredRotation } from "./map-view";
 import { selectionChanged } from "./selection";
@@ -157,13 +158,49 @@ export function getInternalVariables(config: CardPresetConfig): VariablesStorage
     };
 }
 
+function cameraHasRooms(card: XiaomiVacuumMapCard, config: CardPresetConfig): boolean {
+    if (PlatformGenerator.getPlatformName(config.vacuum_platform).startsWith("Setup")) return false;
+    const rooms = card.hass?.states[config.map_source?.camera ?? ""]?.attributes?.["rooms"];
+    return typeof rooms === "object" && rooms !== null && Object.keys(rooms).length > 0;
+}
+
 export function getModes(card: XiaomiVacuumMapCard, config: CardPresetConfig) {
     const vacuumPlatform = PlatformGenerator.getPlatformName(config.vacuum_platform);
     return (
         (config.map_modes?.length ?? -1) === -1 || vacuumPlatform.startsWith("Setup")
-            ? PlatformGenerator.generateDefaultModes(vacuumPlatform)
+            ? PlatformGenerator.generateDefaultModes(vacuumPlatform, cameraHasRooms(card, config))
             : config.map_modes ?? [EMPTY_MAP_MODE]
     ).map(m => new MapMode(vacuumPlatform, m, card.config.language));
+}
+
+/**
+ * Adds the generated room mode to a preset without `map_modes` once the camera's room metadata
+ * appears after the preset was set (a camera that was unavailable at startup, or a map that gains
+ * rooms after the first cleaning). Configured `map_modes` are never touched.
+ *
+ * It only ever adds. A camera without `rooms` (unavailable, restarting) says nothing about the
+ * rooms - `isCameraRoomsKnown`, the rule stale rooms and the selection follow too - so a room
+ * mode that is already there stays, and with it the selected mode and the selection. The
+ * existing mode objects are kept and the new mode is appended, so the current mode is untouched;
+ * it is only set up when there was no mode before.
+ */
+export function refreshDefaultModes(card: XiaomiVacuumMapCard): void {
+    const preset = card.currentPreset;
+    if (!preset || !card.config || card.configErrors.length > 0 || preset.map_modes !== undefined) return;
+    // The shared source rule (`isCameraRoomsKnown`): an unavailable camera, or one that dropped
+    // rooms it reported before, carries no information, so nothing changes. A known camera
+    // without rooms has nothing to add either; the mode list is only ever extended.
+    const camera = card.hass?.states[preset.map_source?.camera ?? ""];
+    if (!isCameraRoomsKnown(camera, card.roomMetadataSeen) || !cameraHasRooms(card, preset)) return;
+    // Runs on every hass update, so compare template names before building any mode.
+    const platform = PlatformGenerator.getPlatformName(preset.vacuum_platform);
+    const present = new Set(card.modes.map(m => m.config.template));
+    const missing = PlatformGenerator.generateDefaultModes(platform, true)
+        .filter(m => !present.has(m.template));
+    if (missing.length === 0) return;
+    const hadModes = card.modes.length > 0;
+    card.modes = [...card.modes, ...missing.map(m => new MapMode(platform, m, card.config.language))];
+    if (!hadModes) setCurrentMode(card, 0, false);
 }
 
 export function executePresetsActivation(card: XiaomiVacuumMapCard) {

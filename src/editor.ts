@@ -143,7 +143,7 @@ export class XiaomiVacuumMapCardEditor extends LitElement implements Omit<Lovela
             return html``;
         }
 
-        this._helpers.importMoreInfoControl("climate");
+        this._helpers.importMoreInfoControl?.("climate");
 
         const entityIds = Object.keys(this.hass.states);
         const cameras = entityIds.filter(e => ["camera", "image"].includes(e.substr(0, e.indexOf("."))));
@@ -309,8 +309,18 @@ export class XiaomiVacuumMapCardEditor extends LitElement implements Omit<Lovela
         this._initialized = true;
     }
 
+    /**
+     * Card helpers only preload Home Assistant's form elements (`importMoreInfoControl`). A
+     * frontend without `loadCardHelpers`, or one whose loader rejects, must still get the editor:
+     * the elements are defined by then on every current frontend, so an empty helper set is used.
+     */
     private async loadCardHelpers(): Promise<void> {
-        this._helpers = await (window as any).loadCardHelpers();
+        const loader = (window as any).loadCardHelpers;
+        try {
+            this._helpers = typeof loader === "function" ? (await loader()) ?? {} : {};
+        } catch {
+            this._helpers = {};
+        }
     }
 
     private _handleNewSelection(e: Event): void {
@@ -480,7 +490,8 @@ export class XiaomiVacuumMapCardEditor extends LitElement implements Omit<Lovela
         tmpConfig["map_source"] = { camera: value };
         if (!PlatformGenerator.getCalibration(this._config.vacuum_platform)
             && !tmpConfig["calibration_source"]
-            && "calibration_points" in this.hass.states[value].attributes
+            // A cleared field or a camera that has no state yet has nothing to offer.
+            && "calibration_points" in (this.hass.states[value]?.attributes ?? {})
         ) {
             tmpConfig["calibration_source"] = { camera: true };
         }
@@ -493,7 +504,7 @@ export class XiaomiVacuumMapCardEditor extends LitElement implements Omit<Lovela
             return;
         }
         const value = ev.detail?.value ?? ev.target.value;
-        if (this._camera === value) return;
+        if (this._entity === value) return;
         const tmpConfig = { ...this._config };
         tmpConfig["entity"] = value;
         this._config = tmpConfig;

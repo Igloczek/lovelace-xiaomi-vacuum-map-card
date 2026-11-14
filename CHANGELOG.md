@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- A card added from the card picker uses the vacuum's own integration as its platform (Xiaomi Miio,
+  Roborock core, Dreame, Xiaomi MIoT, Neato, Roomba, Deebot) and the map of the vacuum's own device,
+  instead of always Xiaomi Miio and the first calibrated camera in the instance.
+- Without `map_modes`, a camera that publishes `rooms` adds the platform's room mode to the
+  defaults, so rooms can be cleaned without generating a config. Platforms whose room template
+  needs hand-written variables or takes room names keep their defaults. A camera that is briefly
+  unavailable keeps the mode and the selection.
+
 ### Fixed
 
 - A zoomed map keeps showing the same place when the card changes width: after a window resize,
@@ -31,6 +41,23 @@
   - `max_selections` holds when a `state_entity` item turns on outside the card or the limit is
     lowered: the items selected first are kept.
   - After a run clears the selection, the map shows it cleared right away.
+- Invalid YAML (a scalar where a list belongs, a `null` list item, an unknown or numeric
+  `selection_type`) shows a message naming the field instead of breaking the card. An empty key
+  still counts as absent.
+- A card that once had an old-style or invalid configuration renders again once the configuration
+  is fixed, without reloading the page.
+- A tile no longer shows `unavailable h`, `undefined h` or `NaN h`: a value that is not a number is
+  shown as Home Assistant shows the state, without the unit. Numbers follow the user's number
+  format (`1,5 h`).
+- Duration tiles of Xiaomi Miio, humbertogontijo Roborock, Hypfer Valetudo, Deebot and Neatsvor
+  convert from the unit the sensor reports, so a changed display unit no longer shows wrong hours.
+- Deebot's total cleaning time tile is no longer dropped behind the cleaning time tile.
+- A tile whose `icon_source` entity, or an icon whose condition entity, was removed no longer
+  breaks the card.
+- Room metadata with a broken entry, numeric strings, an empty name or a list instead of a mapping
+  no longer breaks the map or uses list positions as room ids.
+- The editor opens on frontends without card helpers, and clearing the camera field no longer
+  throws.
 
 ## 1.0.7
 

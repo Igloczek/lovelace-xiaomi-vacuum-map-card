@@ -25,8 +25,60 @@ import { MapMode } from "./model/map_mode/map-mode";
 import { SelectionType } from "./model/map_mode/selection-type";
 import { PlatformGenerator } from "./model/generators/platform-generator";
 import { HomeAssistantFixed } from "./types/fixes";
+import { RepeatsType } from "./model/map_mode/repeats-type";
+
+/*
+ * Every value below comes from YAML a user typed, so a field can hold any JSON-like value: a scalar
+ * where a list belongs, `null` from an empty key, a list item that is a string. The parser accepts
+ * all of those. Each validator checks the shape before it reads a property or calls an array
+ * method, and reports the field by name, so a typo yields a message instead of a TypeError.
+ */
+
+function isMapping(value: unknown): boolean {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function notMapping(field: string): TranslatableString {
+    return ["validation.type.mapping", "{0}", field];
+}
+
+function notList(field: string): TranslatableString {
+    return ["validation.type.list", "{0}", field];
+}
+
+/** Validates each item of an optional list, or reports the field when it is not a list. */
+function validateList<T>(
+    value: unknown,
+    field: string,
+    validateItem: (item: T) => TranslatableString[],
+): TranslatableString[] {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) return [notList(field)];
+    return value.flatMap(item => validateItem(item as T));
+}
+
+/**
+ * The offending value of an enum option written by name (`selection_type: ROOM`), or `undefined`
+ * when it is a valid name or absent. `null` and `""` (an empty YAML key) are absent and fall back
+ * to the default, as upstream did. A number is rejected even where it indexes the enum: the
+ * TypeScript enum maps `2` to `ROOM`, so `selection_type: 2` would silently mean a room mode.
+ */
+function validateEnumName(value: unknown, values: Record<string, unknown>): string | undefined {
+    if (value === undefined || value === null || value === "") return undefined;
+    const name = String(value);
+    return typeof value === "string" && Number.isNaN(Number(name)) && name in values ? undefined : name;
+}
+
+function validateConditions(conditions: unknown, field: string): TranslatableString[] {
+    return validateList<unknown>(conditions, field, condition =>
+        isMapping(condition) ? [] : [notMapping(field)],
+    );
+}
 
 function validateMapSource(mapSource: MapSourceConfig): TranslatableString[] {
+    if (!isMapping(mapSource)) {
+        return [notMapping("map_source")];
+    }
     if (!mapSource.camera && !mapSource.image) {
         return ["validation.preset.map_source.none_provided"];
     }
@@ -37,6 +89,9 @@ function validateMapSource(mapSource: MapSourceConfig): TranslatableString[] {
 }
 
 function validateCalibrationPoint(calibrationPoint: CalibrationPoint): TranslatableString[] {
+    if (!isMapping(calibrationPoint)) {
+        return [notMapping("calibration_points")];
+    }
     const errors: TranslatableString[] = [];
     if (!calibrationPoint?.map) {
         errors.push("validation.preset.calibration_source.calibration_points.missing_map");
@@ -47,7 +102,7 @@ function validateCalibrationPoint(calibrationPoint: CalibrationPoint): Translata
     if (
         [calibrationPoint?.map, calibrationPoint?.vacuum]
             .filter(p => p !== undefined)
-            .some(p => p.x === undefined || p.y === undefined)
+            .some(p => !isMapping(p) || p.x === undefined || p.y === undefined)
     ) {
         errors.push("validation.preset.calibration_source.calibration_points.missing_coordinate");
     }
@@ -55,10 +110,16 @@ function validateCalibrationPoint(calibrationPoint: CalibrationPoint): Translata
 }
 
 function validateCalibrationSource(calibrationSource: CalibrationSourceConfig): TranslatableString[] {
+    if (!isMapping(calibrationSource)) {
+        return [notMapping("calibration_source")];
+    }
     if (Object.keys(calibrationSource).filter(k => k != "attribute").length > 1) {
         return ["validation.preset.calibration_source.ambiguous"];
     }
     if (calibrationSource.calibration_points) {
+        if (!Array.isArray(calibrationSource.calibration_points)) {
+            return [notList("calibration_points")];
+        }
         if (![3, 4].includes(calibrationSource.calibration_points.length)) {
             return ["validation.preset.calibration_source.calibration_points.invalid_number"];
         }
@@ -68,10 +129,10 @@ function validateCalibrationSource(calibrationSource: CalibrationSourceConfig): 
 }
 
 function validateIconConfig(config: IconActionConfig): TranslatableString[] {
-    if (!config) {
+    if (!isMapping(config)) {
         return ["validation.preset.icons.invalid"];
     }
-    const errors: TranslatableString[] = [];
+    const errors: TranslatableString[] = [...validateConditions(config.conditions, "icons.conditions")];
     if (!config.icon && config.type !== "menu" && !config.replace_config) {
         errors.push("validation.preset.icons.icon.missing");
     }
@@ -79,10 +140,10 @@ function validateIconConfig(config: IconActionConfig): TranslatableString[] {
 }
 
 function validateTileConfig(config: TileConfig): TranslatableString[] {
-    if (!config) {
+    if (!isMapping(config)) {
         return ["validation.preset.tiles.invalid"];
     }
-    const errors: TranslatableString[] = [];
+    const errors: TranslatableString[] = [...validateConditions(config.conditions, "tiles.conditions")];
     if (config.replace_config) {
         return errors;
     }
@@ -96,6 +157,9 @@ function validateTileConfig(config: TileConfig): TranslatableString[] {
 }
 
 function validateIcon(config: IconConfig): TranslatableString[] {
+    if (!isMapping(config)) {
+        return [notMapping("icon")];
+    }
     if (config.x === undefined) {
         return ["validation.preset.map_modes.predefined_selections.icon.x.missing"];
     }
@@ -109,6 +173,9 @@ function validateIcon(config: IconConfig): TranslatableString[] {
 }
 
 function validateLabel(config: LabelConfig): TranslatableString[] {
+    if (!isMapping(config)) {
+        return [notMapping("label")];
+    }
     if (config.x === undefined) {
         return ["validation.preset.map_modes.predefined_selections.label.x.missing"];
     }
@@ -122,11 +189,19 @@ function validateLabel(config: LabelConfig): TranslatableString[] {
 }
 
 function validatePredefinedRectangleConfig(ps: PredefinedSelectionConfig): TranslatableString[] {
+    if (!isMapping(ps)) {
+        return [notMapping("predefined_selections")];
+    }
     const config = ps as PredefinedZoneConfig;
     const errors: TranslatableString[] = [];
     if (!config.zones) {
         errors.push("validation.preset.map_modes.predefined_selections.zones.missing");
-    } else if (typeof config.zones !== "string" && config.zones.filter(z => z.length != 4).length > 0) {
+    } else if (typeof config.zones !== "string" && !Array.isArray(config.zones)) {
+        errors.push(notList("zones"));
+    } else if (
+        typeof config.zones !== "string" &&
+        config.zones.some(z => !Array.isArray(z) || z.length != 4)
+    ) {
         errors.push("validation.preset.map_modes.predefined_selections.zones.invalid_parameters_number");
     }
     if (config.icon) {
@@ -139,12 +214,15 @@ function validatePredefinedRectangleConfig(ps: PredefinedSelectionConfig): Trans
 }
 
 function validatePredefinedPointConfig(ps: PredefinedSelectionConfig): TranslatableString[] {
+    if (!isMapping(ps)) {
+        return [notMapping("predefined_selections")];
+    }
     const config = ps as PredefinedPointConfig;
     const errors: TranslatableString[] = [];
     if (!config.position) {
         errors.push("validation.preset.map_modes.predefined_selections.points.position.missing");
     }
-    if (typeof config.position !== "string" && config.position?.length != 2) {
+    if (typeof config.position !== "string" && (!Array.isArray(config.position) || config.position.length != 2)) {
         errors.push("validation.preset.map_modes.predefined_selections.points.position.invalid_parameters_number");
     }
     if (config.icon) {
@@ -157,9 +235,12 @@ function validatePredefinedPointConfig(ps: PredefinedSelectionConfig): Translata
 }
 
 function validateRoomConfig(ps: PredefinedSelectionConfig): TranslatableString[] {
+    if (!isMapping(ps)) {
+        return [notMapping("predefined_selections")];
+    }
     const config = ps as RoomConfig;
     const errors: TranslatableString[] = [];
-    if (config.id === undefined) {
+    if (config.id === undefined || config.id === null) {
         errors.push("validation.preset.map_modes.predefined_selections.rooms.id.missing");
     } else if (!config.id.toString().match(/^[A-Za-z0-9 _]+$/i)) {
         errors.push([
@@ -168,7 +249,9 @@ function validateRoomConfig(ps: PredefinedSelectionConfig): TranslatableString[]
             config.id.toString(),
         ]);
     }
-    if ((config.outline ?? []).filter(o => o.length != 2).length > 0) {
+    if (config.outline !== undefined && config.outline !== null && !Array.isArray(config.outline)) {
+        errors.push(notList("outline"));
+    } else if ((config.outline ?? []).some(o => !Array.isArray(o) || o.length != 2)) {
         errors.push("validation.preset.map_modes.predefined_selections.rooms.outline.invalid_parameters_number");
     }
     if (config.icon) {
@@ -181,7 +264,10 @@ function validateRoomConfig(ps: PredefinedSelectionConfig): TranslatableString[]
 }
 
 function validateServiceCallSchemaConfig(config: ServiceCallSchemaConfig): TranslatableString[] {
-    if (!config.service) {
+    if (!isMapping(config)) {
+        return [notMapping("service_call_schema")];
+    }
+    if (typeof config.service !== "string" || !config.service) {
         return ["validation.preset.map_modes.service_call_schema.service.missing"];
     }
     if (!config.service.includes(".")) {
@@ -195,13 +281,25 @@ function validateMapModeConfig(
     config: MapModeConfig,
     language: Language,
 ): TranslatableString[] {
-    if (!config) {
+    if (!isMapping(config)) {
         return ["validation.preset.map_modes.invalid"];
     }
     if (config.template && !PlatformGenerator.isValidModeTemplate(vacuumPlatform, config.template)) {
         return [["validation.preset.map_modes.template.invalid", "{0}", config.template]];
     }
     const errors: TranslatableString[] = [];
+    const selectionTypeError = validateEnumName(config.selection_type, SelectionType as unknown as Record<string, unknown>);
+    if (selectionTypeError !== undefined) {
+        return [["validation.preset.map_modes.selection_type.invalid", "{0}", selectionTypeError]];
+    }
+    const repeatsTypeError = validateEnumName(config.repeats_type, RepeatsType as unknown as Record<string, unknown>);
+    if (repeatsTypeError !== undefined) {
+        return [["validation.preset.map_modes.repeats_type.invalid", "{0}", repeatsTypeError]];
+    }
+    if (config.predefined_selections !== undefined && config.predefined_selections !== null
+        && !Array.isArray(config.predefined_selections)) {
+        return [notList("predefined_selections")];
+    }
     if (!config.template && !config.icon) {
         errors.push("validation.preset.map_modes.icon.missing");
     }
@@ -241,6 +339,12 @@ function validateMapModeConfig(
 }
 
 function validatePreset(config: CardPresetConfig, nameRequired: boolean, language: Language): TranslatableString[] {
+    if (!isMapping(config)) {
+        return [notMapping("additional_presets")];
+    }
+    if (config.vacuum_platform !== undefined && typeof config.vacuum_platform !== "string") {
+        return [["validation.preset.platform.invalid", "{0}", JSON.stringify(config.vacuum_platform)]];
+    }
     const errors: TranslatableString[] = [];
     const platformsWithDefaultCalibration = PlatformGenerator.getPlatformsWithDefaultCalibration();
     const mandatoryFields = new Map<string, string>([
@@ -251,25 +355,31 @@ function validatePreset(config: CardPresetConfig, nameRequired: boolean, languag
     if (!platformsWithDefaultCalibration.includes(vacuumPlatform)) {
         mandatoryFields.set("calibration_source", "validation.preset.calibration_source.missing");
     }
-    const params = Object.keys(config);
+    // An empty YAML key (`calibration_source:`) is `null`, which counts as missing.
+    const params = Object.keys(config).filter(k => (config as unknown as Record<string, unknown>)[k] != null);
     mandatoryFields.forEach((v: string, k: string) => {
         if (!params.includes(k)) {
             errors.push(v);
         }
     });
-    if (config.map_source) validateMapSource(config.map_source).forEach(e => errors.push(e));
-    if (config.calibration_source) validateCalibrationSource(config.calibration_source).forEach(e => errors.push(e));
+    if (config.map_source != null) validateMapSource(config.map_source).forEach(e => errors.push(e));
+    // An empty `calibration_source:` key is YAML `null`: absent, as upstream treated it.
+    if (config.calibration_source !== undefined && config.calibration_source !== null)
+        validateCalibrationSource(config.calibration_source as CalibrationSourceConfig).forEach(e => errors.push(e));
     if (config.vacuum_platform
         && !PlatformGenerator.getPlatforms().includes(PlatformGenerator.getPlatformName(config.vacuum_platform))
     )
         errors.push(["validation.preset.platform.invalid", "{0}", config.vacuum_platform]);
-    (config.icons ?? []).flatMap(i => validateIconConfig(i)).forEach(e => errors.push(e));
-    (config.tiles ?? []).flatMap(i => validateTileConfig(i)).forEach(e => errors.push(e));
+    validateList(config.icons, "icons", validateIconConfig).forEach(e => errors.push(e));
+    validateList(config.tiles, "tiles", validateTileConfig).forEach(e => errors.push(e));
+    validateConditions(config.conditions, "conditions").forEach(e => errors.push(e));
     if (![PlatformGenerator.SETUP_INTEGER_PLATFORM, PlatformGenerator.SETUP_DECIMAL_PLATFORM]
         .includes(PlatformGenerator.getPlatformName(config.vacuum_platform))) {
-        (config.map_modes ?? [])
-            .flatMap(i => validateMapModeConfig(vacuumPlatform, i, language))
-            .forEach(e => errors.push(e));
+        validateList<MapModeConfig>(config.map_modes, "map_modes", mode =>
+            validateMapModeConfig(vacuumPlatform, mode, language),
+        ).forEach(e => errors.push(e));
+    } else if (config.map_modes !== undefined && config.map_modes !== null && !Array.isArray(config.map_modes)) {
+        errors.push(notList("map_modes"));
     }
     if (!config.preset_name && nameRequired) errors.push("validation.preset.preset_name.missing");
     return errors;
@@ -325,19 +435,23 @@ export function validateLayout(layout: CardLayout | undefined): TranslatableStri
 }
 
 export function validateConfig(config: XiaomiVacuumMapCardConfig): string[] {
+    if (!isMapping(config)) {
+        return [localize(notMapping("config"))];
+    }
     const errors: TranslatableString[] = [];
-    const multiplePresets = (config.additional_presets?.length ?? 0) > 0;
+    const additionalPresets: unknown = config.additional_presets;
+    const multiplePresets = Array.isArray(additionalPresets) && additionalPresets.length > 0;
     validatePreset(config, multiplePresets, config.language).forEach(e => errors.push(e));
     validateLayout(config.layout).forEach(e => errors.push(e));
     validateMapViewConfig(config.map_view).forEach(e => errors.push(e));
-    config.additional_presets
-        ?.flatMap(preset => validatePreset(preset, multiplePresets, config.language))
-        .forEach(e => errors.push(e));
+    validateList<CardPresetConfig>(additionalPresets, "additional_presets", preset =>
+        validatePreset(preset, multiplePresets, config.language),
+    ).forEach(e => errors.push(e));
     return errors.map(e => localize(e, config.language));
 }
 
 export function isOldConfig(config: XiaomiVacuumMapCardConfig): boolean {
-    return config.map_image || config.map_camera;
+    return Boolean(config.map_image || config.map_camera);
 }
 
 export function areAllEntitiesDefined(usedEntities: string[], hass: HomeAssistantFixed): string[] {

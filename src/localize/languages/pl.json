@@ -18,6 +18,10 @@
         "vacuum_follow_path": "Ścieżka"
     },
     "validation": {
+        "type": {
+            "mapping": "Nieprawidłowa konfiguracja: {0} musi być mapą (klucz: wartość)",
+            "list": "Nieprawidłowa konfiguracja: {0} musi być listą"
+        },
         "preset": {
             "entity": {
                 "missing": "Brakujący parametr: entity"
@@ -113,6 +117,12 @@
                             "missing": "Każda ikona musi posiadać parametr \"name\""
                         }
                     }
+                },
+                "selection_type": {
+                    "invalid": "Nieprawidłowy typ zaznaczenia: {0}"
+                },
+                "repeats_type": {
+                    "invalid": "Nieprawidłowy typ powtórzeń: {0}"
                 },
                 "service_call_schema": {
                     "missing": "Brakujący schemat wywołania usługi",

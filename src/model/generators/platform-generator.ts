@@ -28,6 +28,7 @@ import {
     VariablesStorage,
 } from "../../types/types";
 import { SelectionType } from "../map_mode/selection-type";
+import { TemplatableValue } from "../map_mode/templatable-value";
 
 export class PlatformGenerator {
     public static DEFAULT_PLATFORM = "default";
@@ -101,6 +102,19 @@ export class PlatformGenerator {
         [PlatformGenerator.SETUP_DECIMAL_PLATFORM, "setup"],
     ]);
 
+    /**
+     * Platforms whose room template selects rooms by name, not by id: `neato.custom_cleaning` and
+     * `myneato.custom_cleaning` take a boundary name in `zone`, simple-wyze-vac's `sweep_rooms` takes
+     * room names. Camera metadata ids (`"13"`) are not names, so their room template is never a
+     * generated default. (johnnyh1975/ha_roomba_plus also selects by name, but its room modes are
+     * the template's own defaults.)
+     */
+    private static ROOM_TEMPLATES_BY_NAME = [
+        PlatformGenerator.NEATO_PLATFORM,
+        PlatformGenerator.BENJAMIN_PAAP_MYNEATO_PLATFORM,
+        PlatformGenerator.ROMEDTINO_SIMPLE_WAZE_PLATFORM,
+    ];
+
     public static getPlatformsWithDefaultCalibration(): string[] {
         return [
             PlatformGenerator.BENJAMIN_PAAP_MYNEATO_PLATFORM,
@@ -139,8 +153,51 @@ export class PlatformGenerator {
         return this.getPlatformTemplate(platform).map_modes.templates[template];
     }
 
-    public static generateDefaultModes(platform: string): MapModeConfig[] {
-        return this.getPlatformTemplate(platform).map_modes.default_templates.map(dt => ({ template: dt }));
+    /**
+     * The modes a preset without `map_modes` gets.
+     *
+     * With `cameraHasRooms`, the platform's room mode is added when its defaults have none: the
+     * rooms then come from the camera's `rooms` metadata, so room cleaning works without a
+     * hand-written room list on every platform that has a room template. Several platforms
+     * (al-one/hass-xiaomi-miot, Neato, Roomba, ...) have no default mode at all, which left the
+     * map with nothing to select.
+     */
+    public static generateDefaultModes(platform: string, cameraHasRooms = false): MapModeConfig[] {
+        const modes: MapModeConfig[] = this.getPlatformTemplate(platform).map_modes.default_templates
+            .map(dt => ({ template: dt }));
+        if (!cameraHasRooms) return modes;
+        const roomsTemplate = this.getRoomsTemplate(platform);
+        const roomSelection = SelectionType[SelectionType.ROOM];
+        const hasRoomMode = modes.some(m => this.getModeTemplate(platform, m.template as string)?.selection_type === roomSelection);
+        if (roomsTemplate !== undefined && !hasRoomMode && this.isSelfContainedTemplate(platform, roomsTemplate)) {
+            modes.push({ template: roomsTemplate });
+        }
+        return modes;
+    }
+
+    /**
+     * Whether a mode template sends a complete service call with nothing but the selection: it has
+     * service data, and every `[[placeholder]]` in it is one the card fills itself (the entity, the
+     * selection, repeats, the jsonify modifiers) or a variable the platform template defines.
+     * A template that needs a hand-configured variable (an MQTT `[[topic]]`, a Roomba `[[pmap_id]]`,
+     * per-room `[[variables]]`) or has no service data at all (al-one/hass-xiaomi-miot, configured
+     * per model) would send a broken call, and a template that takes room names cannot use camera
+     * ids, so neither is added as a default.
+     */
+    public static isSelfContainedTemplate(platform: string, template: string): boolean {
+        if (this.ROOM_TEMPLATES_BY_NAME.includes(platform)) return false;
+        const mode = this.getModeTemplate(platform, template);
+        const schema = mode?.service_call_schema;
+        if (!schema?.service || !schema.service_data) return false;
+        const known = new Set<string>([
+            ...Object.values(TemplatableValue),
+            "jsonify",
+            "jsonify_jinja",
+            ...Object.keys(this.getPlatformTemplate(platform).internal_variables ?? {}),
+            ...Object.keys(mode.variables ?? {}),
+        ]);
+        const text = JSON.stringify([schema.service_data, schema.target ?? null]);
+        return [...text.matchAll(/\[\[([A-Za-z0-9_]+)\]\]/g)].every(match => known.has(match[1]));
     }
 
     public static getTilesFromAttributesTemplates(platform: string): TileFromAttributeTemplate[] {
