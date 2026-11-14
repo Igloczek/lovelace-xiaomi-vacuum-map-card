@@ -151,6 +151,11 @@ export interface MapModeConfig {
     readonly coordinates_to_meters_divider?: number;
     readonly selection_type?: string;
     readonly max_selections?: number;
+    /**
+     * ROOM modes: the platform cleans the rooms in the order they are sent, so the card numbers
+     * them. Platform templates set it where the integration is known to follow the order.
+     */
+    readonly cleaning_order?: boolean;
     readonly repeats_type?: string;
     readonly max_repeats?: number;
     readonly service_call_schema?: ServiceCallSchemaConfig;

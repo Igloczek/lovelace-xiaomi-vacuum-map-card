@@ -300,6 +300,11 @@ function validateMapModeConfig(
         && !Array.isArray(config.predefined_selections)) {
         return [notList("predefined_selections")];
     }
+    const cleaningOrder: unknown = config.cleaning_order;
+    if (cleaningOrder !== undefined && cleaningOrder !== null && typeof cleaningOrder !== "boolean") {
+        // A typo such as `cleaning_order: yes` would otherwise silently hide the numbers.
+        errors.push(["validation.preset.map_modes.cleaning_order.invalid", "{0}", String(cleaningOrder)]);
+    }
     if (!config.template && !config.icon) {
         errors.push("validation.preset.map_modes.icon.missing");
     }

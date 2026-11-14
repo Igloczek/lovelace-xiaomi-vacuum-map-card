@@ -24,7 +24,7 @@ Compared with the original [Xiaomi Vacuum Map Card](https://github.com/PiotrMach
 | 🔁 Map rotation | ❌ not available | ✅ two-finger twist or a fixed angle |
 | 💾 Zoom, position, rotation | ❌ reset on reload | ✅ remembered |
 | 🔄 Map image reloads | ❌ on every entity update | ✅ only on change, paused in background tabs |
-| 🧹 Room cleaning order | ❌ not shown | ✅ numbered badges |
+| 🧹 Room cleaning order | ❌ not shown | ✅ numbered where the vacuum follows it |
 | 🚧 Selection after a re-map | ⚠️ can clean the wrong room | ✅ stale rooms blocked and flagged |
 | 🧩 A config mistake | ❌ breaks the card | ✅ clear message, card keeps working |
 | 📐 Layout | vertical only | ✅ vertical or horizontal, resizable |
@@ -36,8 +36,10 @@ Same card type, same YAML: [switching takes a minute](#coming-from-xiaomi-vacuum
 
 **Clean from the map**
 
-- **Rooms:** tap one or more rooms and start. Each selected room shows its place in the cleaning
-  order.
+- **Rooms:** tap one or more rooms and start. On Valetudo, ValetudoRE and roomba_plus, which
+  clean in the order you tap, each selected room shows its place in that order; other vacuums
+  choose their own route, so their rooms are highlighted without numbers
+  ([per platform](docs/platforms.md#cleaning-order-per-platform)).
 - **Zones:** draw rectangles, or save the zones you use often and pick them with one tap.
 - **Go to a spot:** tap a point and the robot drives there. Saved points work too.
 - **Repeats and custom actions:** set the number of passes, or call any Home Assistant service with

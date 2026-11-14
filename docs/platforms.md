@@ -1,10 +1,12 @@
 # Supported vacuum platforms
 
-*Better Xiaomi Vacuum Map Card* carries the upstream platform templates with two fixes: duration
-tiles convert from the unit the sensor reports, and the Deebot total cleaning time has its own
-`tile_id` (`total_cleaning_time`) so it is no longer dropped. A platform page lists the templates it
-provides, the entities the card discovers and the service calls it uses. Set the platform in a
-preset with `vacuum_platform` and leave everything else as the page shows.
+*Better Xiaomi Vacuum Map Card* carries the upstream platform templates with three changes:
+duration tiles convert from the unit the sensor reports, the Deebot total cleaning time has its
+own `tile_id` (`total_cleaning_time`) so it is no longer dropped, and the templates whose
+integration follows the room order set [`cleaning_order`](#cleaning-order-per-platform). A
+platform page lists the templates it provides, the entities the card discovers and the service
+calls it uses. Set the platform in a preset with `vacuum_platform` and leave everything else as the
+page shows.
 
 ## Supported vacuum platforms
 
@@ -48,6 +50,27 @@ The `roborock` domain is used both by the core Roborock integration and by the o
 the card picks the core `Roborock` template, so a user of the custom integration switches the
 platform in the editor. Any other integration, including Valetudo over MQTT, gets `Xiaomi Miio` as
 before; change it in the editor. The setting is only a starting point and is written into the card's configuration.
+
+## Cleaning order per platform
+
+Rooms are sent in the order you tap them, but only some integrations make the vacuum clean them in
+that order. The card numbers the selected rooms only on those. Everywhere else the vacuum chooses
+its own route and the rooms are highlighted without numbers. A mode can show the numbers with
+`cleaning_order: true`, which does not change the order the vacuum cleans in
+([cleaning order](configuration.md#cleaning-order)).
+
+| Template | Numbered (order followed) | Why |
+|---|---|---|
+| `rand256/ValetudoRE` segments | yes | `segmented_cleanup` sends Roborock's `clean_order_mode: 1` |
+| `Hypfer/Valetudo` | yes | Sends `customOrder: true`; Valetudo follows it on Roborock and Dreame robots, not on Viomi or Midea |
+| `johnnyh1975/ha_roomba_plus` clean room | yes | Sends `ordered: true` |
+| `Xiaomi Miio`, `Roborock`, `send_command`, `humbertogontijo/homeassistant-roborock` | no | `app_segment_clean` without `clean_order_mode`: the robot plans its own route |
+| `Tasshack/dreame-vacuum` | no | Newer models clean in the sequence stored on the robot, not the order sent |
+| `marotoweb/viomi SE`, `tykarol/ViomiVacuumV8`, `KrzysztofHajdamowicz/miio2` | no | Viomi has no order field; the V8 cleans in its own order |
+| `romedtino/simple-wyze-vac` | no | The integration sorts the rooms into map order |
+| `DeebotUniverse/Deebot-4-Home-Assistant`, `Roomba`, `Neato`, `BenjaminPaap/home-assistant-myneato` | no | Not known to follow the order (Roomba core omits iRobot's `ordered`) |
+| `al-one/Xiaomi MIoT`, ValetudoRE go-to | no | One room per call, so there is no order |
+| Any mode with its own `service_call_schema` | no | The card cannot know what the call does; set `cleaning_order: true` if it follows the order |
 
 [Adding a new platform](../CONTRIBUTING.md#adding-new-platform). Platform templates are shared with
 upstream, so platform requests go to the

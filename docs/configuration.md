@@ -255,17 +255,42 @@ For `ROOM` selections, the card can use room IDs and names from the camera's `ro
 
 #### Cleaning order
 
-Rooms are sent in the order you tap them, and each selected room shows its number. After **Start**
-the rooms stay highlighted with their numbers, exactly as they were selected, while the vacuum
-works through them (`cleaning`, `paused` or `returning`); the rooms are locked meanwhile, so the
-order cannot change mid-run. The run ends as soon as the vacuum is done (docked, idle, error), or
-after three minutes if it never starts. Until the vacuum reports the start, which polling
-integrations do tens of seconds late, a tap on a room starts a new selection instead. The run is
-remembered per vacuum in the browser, so a reload keeps it.
+Rooms are sent in the order you tap them. Only some integrations make the vacuum clean them in
+that order, and the card numbers the selected rooms only on those: `Hypfer/Valetudo`,
+`rand256/ValetudoRE` (segments) and `johnnyh1975/ha_roomba_plus`. On every other platform, and in
+any mode with its own `service_call_schema`, the vacuum chooses its own route, so the selected
+rooms are highlighted without numbers. The [platform list](platforms.md#cleaning-order-per-platform)
+gives the reason for each.
 
-Some vacuums plan their own route and ignore the order of a multi-room command; the Viomi V8
-(`set_mode_withroom`) is one. On those the numbers show the order that was sent, not the order the
-vacuum cleans in.
+If your vacuum does follow the order sent (for example your own service call asks for it), set
+`cleaning_order: true` on the ROOM map mode to show the numbers. The setting only controls the
+numbers; it does not make a vacuum follow the order. `cleaning_order: false` hides them on the
+platforms that number by default.
+
+After **Start** the rooms stay highlighted exactly as they were selected, with their numbers where they are shown. The
+selection stays on the map until Home Assistant answers the call; once the call is accepted the
+run of the rooms that were sent takes its place, and if the call fails the selection stays so you
+can retry. While the vacuum works through the run (`cleaning` or
+`returning`) the rooms are locked, so the order cannot change mid-run. Before the vacuum reports
+the start, which polling integrations do tens of seconds late, while it is paused, and while its
+state is `unavailable` or `unknown`, the run stays on the map but a tap on a room starts a new
+selection instead. The run ends as soon as the vacuum is done (docked, idle, error), after three
+minutes if it never starts, and in any case after 12 hours.
+
+Only `cleaning` reported after **Start** counts as the start: a different state than the one
+shown when you pressed it, or the same state changed again (a new `last_changed`). A polling
+integration can still show the previous job, then report its trip home and dock, before it reports
+the new rooms; a `returning` is never taken as the start, and neither is an update that only
+changes attributes such as the battery level. If the vacuum was already cleaning and nothing
+changes, the run counts as started after three minutes; a vacuum still `returning` or `paused`
+then ignored the command, and the run ends. While the start is pending, the card's
+icons read the vacuum as `cleaning`, so the play icon does not offer a full clean for a job that is
+already starting, until the vacuum reports a new state such as `docked` or `error`.
+
+The run is remembered per vacuum in the browser and shared by every card and tab of that browser,
+so a reload keeps it. It is not shared between browsers or devices, and the card cannot tell that
+another app replaced the job with a different one. A vacuum that docks to recharge mid-run ends
+the run.
 
 ### Cropping options
 
@@ -420,6 +445,7 @@ sensor whose display unit was changed in Home Assistant still shows the right nu
 | `coordinates_rounding`  | boolean | no              | `true`  | Enables coordinates rounding                                                         |
 | `max_selections`        | integer | no              | 1       | Maximal number of selections                                                         |
 | `id_type`               | string  | no              | -       | `number` or `string`: the type room ids are sent as in a `ROOM` mode<sup>4</sup>      |
+| `cleaning_order`        | boolean | no              | template, else `false` | ROOM modes: number the selected rooms in the order they are sent. On by default only where the integration follows that order ([cleaning order](#cleaning-order)) |
 | `repeats_type`          | string  | no              | `NONE`  | Type of repeats inclusion, one of [supported ones](#supported-repeats-types)         |
 | `max_repeats`           | integer | no              | 1       | Maximal value of repeats                                                             |
 | `variables`             | object  | no              | -       | Variables that should be passed to `service_call_schema`                             |

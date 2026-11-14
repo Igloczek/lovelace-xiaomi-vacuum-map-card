@@ -28,3 +28,7 @@ input_boolean:
 camera:
   - platform: map_fixture
     name: Vacuum Map
+
+vacuum:
+  - platform: map_fixture
+    name: Fake Vacuum

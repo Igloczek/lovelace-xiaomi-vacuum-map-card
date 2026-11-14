@@ -11,6 +11,17 @@
   defaults, so rooms can be cleaned without generating a config. Platforms whose room template
   needs hand-written variables or takes room names keep their defaults. A camera that is briefly
   unavailable keeps the mode and the selection.
+### Changed
+
+- Rooms are numbered only where the integration makes the vacuum clean them in the order they
+  are sent: Valetudo, ValetudoRE (segments) and roomba_plus. On every other platform, including
+  Xiaomi Miio, Roborock, Dreame and Viomi, and in modes with their own service call, the vacuum
+  chooses its own route, so the selected rooms are highlighted without numbers. Set
+  `cleaning_order: true` on a ROOM map mode to show the numbers anyway (it does not change the
+  order the vacuum cleans in), or `false` to hide them. See
+  [cleaning order per platform](docs/platforms.md#cleaning-order-per-platform).
+- A run is no longer locked while the vacuum is paused or `unavailable`; a tap starts a new
+  selection.
 
 ### Fixed
 
@@ -89,6 +100,21 @@
 
 - `id_type` and Jinja templates in `service_call_schema` are documented, and the Deebot page names the
   service it calls.
+- The run shows the rooms that were sent, even if a room was tapped while Home Assistant was still
+  answering the call.
+- `unavailable` or `unknown` from a polling integration no longer ends a run mid-clean.
+- Only `cleaning` reported after **Start** counts as the start of a run. The previous job's
+  `cleaning` or `returning`, still shown by a lagging integration, or an update that only changes
+  an attribute, no longer locks the rooms or lets a lagging `docked` end the run before the vacuum
+  begins.
+- A run that never starts ends after three minutes even when Home Assistant sends no further
+  update, also after a reload.
+- Several cards or tabs showing the same vacuum show the same run, and a card no longer deletes a
+  run another card started.
+- A run is shown only in the ROOM mode it was started from.
+- While a start is pending, the icons treat the vacuum as cleaning, so the play icon does not offer
+  a full clean during the ~30 s a polling integration needs to report the start; a new `docked` or
+  `error` report shows the real state again at once.
 
 ## 1.0.7
 

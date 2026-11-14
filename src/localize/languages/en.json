@@ -123,6 +123,9 @@
                 "repeats_type": {
                     "invalid": "Invalid repeats type: {0}"
                 },
+                "cleaning_order": {
+                    "invalid": "cleaning_order must be true or false: {0}"
+                },
                 "service_call_schema": {
                     "missing": "Missing service call schema",
                     "service": {

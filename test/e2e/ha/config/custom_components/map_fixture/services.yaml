@@ -15,3 +15,32 @@ set_rooms:
     mode:
       description: shift for the re-mapped ids, reset for the original ids.
       example: shift
+vacuum_configure:
+  name: Configure fake vacuum
+  description: Sets how the fake vacuum misbehaves.
+  fields:
+    lag:
+      description: Seconds before a change of the robot is reported.
+      example: 6
+    room_seconds:
+      description: Seconds the robot spends in each room.
+      example: 4
+    return_seconds:
+      description: Seconds the robot needs to dock after a job.
+      example: 3
+    fail_next:
+      description: Make the next command fail.
+      example: true
+    available:
+      description: Report the entity available or unavailable.
+      example: false
+    poll_seconds:
+      description: Seconds between attribute-only state updates (0 turns them off).
+      example: 2
+vacuum_reset:
+  name: Reset fake vacuum
+  description: Puts the fake vacuum into an activity at once, without lag.
+  fields:
+    activity:
+      description: docked, cleaning, returning, paused, idle or error.
+      example: docked

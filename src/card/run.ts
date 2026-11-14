@@ -3,7 +3,7 @@ import { ActionHandlerEvent, forwardHaptic } from "custom-card-helpers";
 import { ActionHandlerFunction, VariablesStorage } from "../types/types";
 import type { MapMode } from "../model/map_mode/map-mode";
 import { EVENT_SERVICE_CALL } from "../const";
-import { saveActiveRoomRun } from "../model/active-room-run";
+import { prepareActiveRoomRun, startActiveRoomRun } from "./active-run";
 import type { ServiceCall } from "../model/map_mode/service-call";
 import { SelectionType } from "../model/map_mode/selection-type";
 import type { XiaomiVacuumMapCard } from "../xiaomi-vacuum-map-card";
@@ -106,6 +106,9 @@ async function sendSelection(
         forwardHaptic("success");
         return true;
     }
+    // The run's baseline is the state shown when the call goes out, not when it is answered.
+    const run =
+        runRoomIds.length > 0 ? prepareActiveRoomRun(card, entity, runRoomIds, currentMode) : undefined;
     const accepted = await callServiceReported(
         card,
         serviceCall.domain,
@@ -116,17 +119,7 @@ async function sendSelection(
     if (!accepted) return false;
     card._showToast("popups.success", "mdi:check", true);
     forwardHaptic("success");
-    if (runRoomIds.length > 0) {
-        card.activeRoomRunEntity = entity;
-        card.activeRoomRun = {
-            entity,
-            roomIds: runRoomIds,
-            startedAt: Date.now(),
-            seenActive: false,
-        };
-        saveActiveRoomRun(entity, card.activeRoomRun);
-        card.requestUpdate();
-    }
+    if (run) startActiveRoomRun(card, run);
     return true;
 }
 
