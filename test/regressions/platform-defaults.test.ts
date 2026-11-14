@@ -148,14 +148,16 @@ describe("platform templates", () => {
 
     it.each(PLATFORMS)("%s: tile ids are unique within the template", platform => {
         const template = templateJson(platform);
+        // A repeated tile id silently drops the later tile: the generator keeps the first.
         const ids = [
             ...(template.tiles?.from_sensors ?? []).map(t => t.tile_id),
             ...(template.tiles?.from_attributes ?? []).map(t => t.tile_id),
         ].filter(Boolean);
-        // A repeated tile id silently drops the later tile: the generator keeps the first.
         const sensorIds = (template.tiles?.from_sensors ?? []).map(t => t.tile_id);
+        const attributeIds = (template.tiles?.from_attributes ?? []).map(t => t.tile_id);
         expect(new Set(sensorIds).size).toBe(sensorIds.length);
-        expect(ids.length).toBeGreaterThanOrEqual(0);
+        expect(new Set(attributeIds).size).toBe(attributeIds.length);
+        expect(ids.every(id => typeof id === "string")).toBe(true);
     });
 
     it.each(PLATFORMS)("%s: the minimal config validates", platform => {
@@ -222,6 +224,11 @@ describe("default modes follow the camera's room metadata", () => {
         "Hypfer/Valetudo", // [[topic]]
         "rand256/ValetudoRE", // [[topic]]
         "Roomba", // [[pmap_id]] and per-room [[variables]]
+        // These select rooms by name (a Neato boundary name, a Wyze room name); camera ids such
+        // as "13" are not names, so the call would be complete but wrong.
+        "Neato",
+        "BenjaminPaap/home-assistant-myneato",
+        "romedtino/simple-wyze-vac",
     ];
 
     it.each(ROOM_PLATFORMS)("%s: a camera with rooms gives a working room mode without map_modes", async platform => {
@@ -272,17 +279,22 @@ describe("default modes follow the camera's room metadata", () => {
 
 describe("room metadata that arrives after the card loaded", () => {
     it("adds the room mode once the camera reports rooms, keeping the selected mode", async () => {
-        const world = platformWorld("Neato", () => ["5", {}]);
+        const world = platformWorld("Xiaomi Miio", () => ["5", {}]);
         const camera = world.hass.states[CAMERA];
         const withoutRooms = { ...camera.attributes };
         delete withoutRooms.rooms;
         const initial = withState(world.hass, CAMERA, { attributes: withoutRooms }).hass;
         const card = await mountCard(world.config, initial);
-        expect(card.element.modes).toHaveLength(0);
+        expect(card.element.modes.map(m => m.config.template)).toEqual(["vacuum_clean_zone", "vacuum_goto"]);
+        const current = card.element._getCurrentMode();
         await card.updateHass(withState(initial, CAMERA, { attributes: camera.attributes }).hass);
-        expect(card.element.modes.map(m => m.selectionType)).toEqual([SelectionType.ROOM]);
+        expect(card.element.modes.map(m => m.selectionType)).toEqual([
+            SelectionType.MANUAL_RECTANGLE,
+            SelectionType.MANUAL_POINT,
+            SelectionType.ROOM,
+        ]);
         expect(card.element.selectedMode).toBe(0);
-        expect(card.element._getCurrentMode()).toBe(card.element.modes[0]);
+        expect(card.element._getCurrentMode()).toBe(current);
         await card.cleanup();
     });
 });

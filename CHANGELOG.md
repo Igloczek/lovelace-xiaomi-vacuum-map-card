@@ -5,11 +5,12 @@
 ### Added
 
 - A card added from the card picker uses the vacuum's own integration as its platform (Xiaomi Miio,
-  Roborock, Dreame, Xiaomi MIoT, Neato, Roomba, Deebot) and the map of the vacuum's own device,
+  Roborock core, Dreame, Xiaomi MIoT, Neato, Roomba, Deebot) and the map of the vacuum's own device,
   instead of always Xiaomi Miio and the first calibrated camera in the instance.
 - Without `map_modes`, a camera that publishes `rooms` adds the platform's room mode to the
   defaults, so rooms can be cleaned without generating a config. Platforms whose room template
-  needs hand-written variables keep their defaults.
+  needs hand-written variables or takes room names keep their defaults. A camera that is briefly
+  unavailable keeps the mode and the selection.
 
 ### Fixed
 
@@ -40,8 +41,9 @@
   - `max_selections` holds when a `state_entity` item turns on outside the card or the limit is
     lowered: the items selected first are kept.
   - After a run clears the selection, the map shows it cleared right away.
-- Invalid YAML (a scalar where a list belongs, an empty key, a `null` list item, an unknown
-  `selection_type`) shows a message naming the field instead of breaking the card.
+- Invalid YAML (a scalar where a list belongs, a `null` list item, an unknown or numeric
+  `selection_type`) shows a message naming the field instead of breaking the card. An empty key
+  still counts as absent.
 - A card that once had an old-style or invalid configuration renders again once the configuration
   is fixed, without reloading the page.
 - A tile no longer shows `unavailable h`, `undefined h` or `NaN h`: a value that is not a number is

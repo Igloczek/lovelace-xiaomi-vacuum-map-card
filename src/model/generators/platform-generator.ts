@@ -102,6 +102,19 @@ export class PlatformGenerator {
         [PlatformGenerator.SETUP_DECIMAL_PLATFORM, "setup"],
     ]);
 
+    /**
+     * Platforms whose room template selects rooms by name, not by id: `neato.custom_cleaning` and
+     * `myneato.custom_cleaning` take a boundary name in `zone`, simple-wyze-vac's `sweep_rooms` takes
+     * room names. Camera metadata ids (`"13"`) are not names, so their room template is never a
+     * generated default. (johnnyh1975/ha_roomba_plus also selects by name, but its room modes are
+     * the template's own defaults.)
+     */
+    private static ROOM_TEMPLATES_BY_NAME = [
+        PlatformGenerator.NEATO_PLATFORM,
+        PlatformGenerator.BENJAMIN_PAAP_MYNEATO_PLATFORM,
+        PlatformGenerator.ROMEDTINO_SIMPLE_WAZE_PLATFORM,
+    ];
+
     public static getPlatformsWithDefaultCalibration(): string[] {
         return [
             PlatformGenerator.BENJAMIN_PAAP_MYNEATO_PLATFORM,
@@ -168,9 +181,11 @@ export class PlatformGenerator {
      * selection, repeats, the jsonify modifiers) or a variable the platform template defines.
      * A template that needs a hand-configured variable (an MQTT `[[topic]]`, a Roomba `[[pmap_id]]`,
      * per-room `[[variables]]`) or has no service data at all (al-one/hass-xiaomi-miot, configured
-     * per model) would send a broken call, so it is never added as a default.
+     * per model) would send a broken call, and a template that takes room names cannot use camera
+     * ids, so neither is added as a default.
      */
     public static isSelfContainedTemplate(platform: string, template: string): boolean {
+        if (this.ROOM_TEMPLATES_BY_NAME.includes(platform)) return false;
         const mode = this.getModeTemplate(platform, template);
         const schema = mode?.service_call_schema;
         if (!schema?.service || !schema.service_data) return false;

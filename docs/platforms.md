@@ -43,8 +43,11 @@ A card added from the card picker takes its `vacuum_platform` from the vacuum's 
 | `roomba`          | `Roomba`                                 |
 | `deebot`          | `DeebotUniverse/Deebot-4-Home-Assistant` |
 
-Any other integration, including Valetudo over MQTT, gets `Xiaomi Miio` as before; change it in
-the editor. The setting is only a starting point and is written into the card's configuration.
+The `roborock` domain is used both by the core Roborock integration and by the older custom
+`humbertogontijo/homeassistant-roborock` integration, and Home Assistant does not tell them apart;
+the card picks the core `Roborock` template, so a user of the custom integration switches the
+platform in the editor. Any other integration, including Valetudo over MQTT, gets `Xiaomi Miio` as
+before; change it in the editor. The setting is only a starting point and is written into the card's configuration.
 
 [Adding a new platform](../CONTRIBUTING.md#adding-new-platform). Platform templates are shared with
 upstream, so platform requests go to the

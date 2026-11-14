@@ -223,11 +223,15 @@ these values per card.
 - **Map modes.** Without `map_modes` a preset gets the platform's default modes. When the camera
   publishes `rooms` metadata and none of those defaults is a room mode, the platform's room mode is
   added too, with its rooms read from the metadata. It is added only when that template sends a
-  complete service call with nothing but the selection: platforms whose room template needs
+  complete service call with the camera's room ids: platforms whose room template needs
   hand-written variables (al-one/hass-xiaomi-miot, Hypfer/Valetudo, rand256/ValetudoRE, Roomba)
-  keep their defaults. A configured `map_modes` list is never changed.
-- **Invalid configuration.** A value of the wrong shape (a scalar where a list belongs, an empty
-  key, an unknown `selection_type`) is reported by name in the card instead of breaking it.
+  or takes room names instead of ids (Neato, BenjaminPaap/home-assistant-myneato,
+  romedtino/simple-wyze-vac) keep their defaults. The mode is only ever added: a camera that is
+  briefly unavailable and publishes no `rooms` keeps the mode, the selected mode and the selection.
+  A configured `map_modes` list is never changed.
+- **Invalid configuration.** A value of the wrong shape (a scalar where a list belongs, a `null`
+  list item, an unknown or numeric `selection_type`) is reported by name in the card instead of
+  breaking it. An empty key (`repeats_type:`) counts as absent and keeps the default.
 
 ## Map source options
 

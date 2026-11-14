@@ -63,7 +63,7 @@ function validateList<T>(
  * to the default, as upstream did. A number is rejected even where it indexes the enum: the
  * TypeScript enum maps `2` to `ROOM`, so `selection_type: 2` would silently mean a room mode.
  */
-function validateEnumName(value: unknown, values: object): string | undefined {
+function validateEnumName(value: unknown, values: Record<string, unknown>): string | undefined {
     if (value === undefined || value === null || value === "") return undefined;
     const name = String(value);
     return typeof value === "string" && Number.isNaN(Number(name)) && name in values ? undefined : name;
@@ -288,11 +288,11 @@ function validateMapModeConfig(
         return [["validation.preset.map_modes.template.invalid", "{0}", config.template]];
     }
     const errors: TranslatableString[] = [];
-    const selectionTypeError = validateEnumName(config.selection_type, SelectionType);
+    const selectionTypeError = validateEnumName(config.selection_type, SelectionType as unknown as Record<string, unknown>);
     if (selectionTypeError !== undefined) {
         return [["validation.preset.map_modes.selection_type.invalid", "{0}", selectionTypeError]];
     }
-    const repeatsTypeError = validateEnumName(config.repeats_type, RepeatsType);
+    const repeatsTypeError = validateEnumName(config.repeats_type, RepeatsType as unknown as Record<string, unknown>);
     if (repeatsTypeError !== undefined) {
         return [["validation.preset.map_modes.repeats_type.invalid", "{0}", repeatsTypeError]];
     }
